@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>devsync</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #0e1116; color: #d6deeb; margin: 0;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; border-bottom: 1px solid #1f2937;
+      background: #0a0d12;
+    }
+    .topbar .logo { font-weight: 700; color: #93c5fd; letter-spacing: .5px; }
+    .topbar .sep { color: #4b5563; }
+    .topbar .pill { font-size: 11px; padding: 2px 6px; border-radius: 999px; background: #1f2937; color: #93c5fd; }
+    main { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 49px); }
+    aside { border-right: 1px solid #1f2937; padding: 12px; overflow: auto; }
+    aside h3 { font-size: 11px; text-transform: uppercase; color: #6b7280; margin: 4px 0 6px; letter-spacing: .8px; }
+    .proj-item {
+      display: block; width: 100%; text-align: left;
+      padding: 8px 10px; border-radius: 6px;
+      background: transparent; color: inherit; border: none;
+      cursor: pointer; margin-bottom: 2px;
+      font: inherit;
+    }
+    .proj-item:hover { background: #131a24; }
+    .proj-item.active { background: #1c2738; color: #93c5fd; }
+    .proj-item .label { font-weight: 600; display: block; }
+    .proj-item .path { font-size: 11px; color: #6b7280; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+    .proj-item .meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .proj-item .status-error { color: #fca5a5; }
+    .proj-item .status-ok { color: #86efac; }
+    button.add {
+      width: 100%; margin-top: 8px;
+      padding: 6px; border-radius: 6px;
+      background: #1f2937; color: #93c5fd; border: 1px dashed #4b5563;
+      cursor: pointer; font: inherit;
+    }
+    button.add:hover { background: #1c2738; }
+    section.pane { padding: 16px 20px; overflow: auto; }
+    h2 { margin: 0 0 6px; font-size: 18px; }
+    .sub { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+    .grid { display: grid; gap: 10px; }
+    .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 11px; color: #93c5fd; }
+    .field .help { font-size: 11px; color: #6b7280; }
+    .field input, .field select {
+      background: #0a0d12; color: #d6deeb;
+      border: 1px solid #1f2937; border-radius: 4px;
+      padding: 6px 8px; font: inherit;
+    }
+    .field input:focus, .field select:focus { outline: 1px solid #3b82f6; border-color: #3b82f6; }
+    .field.secret input { letter-spacing: 2px; font-family: ui-monospace, monospace; }
+    .actions { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+    button.primary {
+      background: #2563eb; color: white; border: none; padding: 8px 14px;
+      border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600;
+    }
+    button.primary:hover { background: #1d4ed8; }
+    button.primary:disabled { background: #374151; cursor: wait; }
+    button.secondary {
+      background: transparent; color: #93c5fd; border: 1px solid #1f2937;
+      padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit;
+    }
+    button.secondary:hover { background: #131a24; }
+    button.danger { color: #fca5a5; border-color: #7f1d1d; background: transparent; padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+    button.danger:hover { background: #1f0d0d; }
+    .status { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none; }
+    .status.ok { display: block; background: #064e3b; color: #86efac; }
+    .status.err { display: block; background: #7f1d1d; color: #fecaca; }
+    .status.info { display: block; background: #1e3a8a; color: #bfdbfe; }
+    .browse { margin-top: 12px; }
+    .browse-list { display: grid; gap: 2px; max-height: 280px; overflow: auto; padding: 6px; background: #0a0d12; border-radius: 6px; border: 1px solid #1f2937; }
+    .browse-item { padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+    .browse-item:hover { background: #131a24; }
+    .browse-item .icon { color: #93c5fd; display: inline-block; width: 22px; }
+    .browse-item .path { color: #6b7280; font-size: 11px; }
+    .browse-up { padding: 4px 8px; color: #fbbf24; cursor: pointer; border-radius: 4px; }
+    .browse-up:hover { background: #131a24; }
+    .empty { color: #6b7280; font-size: 13px; text-align: center; padding: 40px 0; }
+    .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: #1f2937; color: #93c5fd; }
+    .badge.warn { background: #7c2d12; color: #fed7aa; }
+    .badge.ok { background: #064e3b; color: #86efac; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="logo">devsync</span>
+    <span class="sep">·</span>
+    <span>v2 (loopback)</span>
+    <span class="sep">·</span>
+    <span class="pill" id="serverStatus">loading…</span>
+  </div>
+
+  <main>
+    <aside>
+      <h3>Projects</h3>
+      <div id="projectList"></div>
+      <button class="add" id="addProject">+ Add project</button>
+
+      <h3 style="margin-top:18px">Quick start</h3>
+      <div style="font-size:12px; color:#9ca3af; line-height:1.5">
+        1. Pick or add a project<br>
+        2. Fill host/user/password<br>
+        3. Click <b>Browse</b> to find the remote folder<br>
+        4. Save · then <code>devsync</code> in that folder to sync
+      </div>
+    </aside>
+
+    <section class="pane" id="pane">
+      <div class="empty">Loading…</div>
+    </section>
+  </main>
+
+  <script src="/ui.js"></script>
+</body>
+</html>

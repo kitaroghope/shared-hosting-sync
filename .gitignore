@@ -1,0 +1,23 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# Local hosting credentials (keep the example template).
+.env
+.env.*
+!.env.example
+.devsync.env
+.devsync/
+
+# Generated test state and local probes.
+test/_tmp*/
+test/_tmp*.mjs
+*.db
+*.db-wal
+*.db-shm
+master.key
+session.token
+
+# Local package builds.
+*.tgz

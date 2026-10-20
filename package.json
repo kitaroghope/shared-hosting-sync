@@ -1,0 +1,65 @@
+{
+  "name": "devsync",
+  "version": "0.1.0",
+  "description": "Global local-dev to hosting sync. One-way, watch-mode, .deployignore-driven. SFTP/FTP/FTPS. Lives outside your projects.",
+  "type": "module",
+  "license": "MIT",
+  "author": "kita",
+  "keywords": [
+    "ftp",
+    "sftp",
+    "ftps",
+    "deploy",
+    "sync",
+    "upload",
+    "watch",
+    "devsync",
+    "nodemon",
+    "shared-hosting",
+    "cpanel",
+    "deployignore",
+    "developer-tools",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR-USERNAME/devsync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR-USERNAME/devsync/issues"
+  },
+  "homepage": "https://github.com/YOUR-USERNAME/devsync#readme",
+  "bin": {
+    "devsync": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "files": [
+    "src/",
+    "test/",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node test/ignore.test.js && node --test test/uploader.test.js test/transport-ftp.test.js",
+    "prepack": "npm test",
+    "prepublishOnly": "npm test && node -e \"console.log('publishing ' + require('./package.json').name + '@' + require('./package.json').version)\""
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "basic-ftp": "^6.2.3",
+    "chokidar": "^5.0.0",
+    "dotenv": "^17.2.3",
+    "ignore": "^7.0.12",
+    "ssh2-sftp-client": "^12.1.1"
+  },
+  "devDependencies": {
+    "ftp-srv": "^4.6.3",
+    "ssh2": "^1.17.0"
+  }
+}
