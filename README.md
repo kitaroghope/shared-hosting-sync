@@ -1,16 +1,21 @@
-# devsync
+# shared-hosting-sync
 
 Deploy local projects to shared hosting through FTP, FTPS, or SFTP. Install once,
 choose a local folder and a server destination, then deploy or keep files in sync.
 
-Use the terminal or a local browser dashboard. Both interfaces are intended to
-control the same projects, settings, and deployment operations.
+Use the terminal or a local browser dashboard. Both interfaces control the same
+projects, settings, and deployment operations.
 
-> **Development status:** This README defines the agreed product experience.
-> CLI and UI onboarding, previews, deployment, sync, and watching are implemented. See
-> [Current implementation](#current-implementation) for remaining release work.
+> **Release candidate:** Version 0.1.0 is being prepared for npm publication.
+> CLI and UI onboarding, previews, deployment, sync, and watching are implemented.
+> Registry installation becomes available after publication.
 
-## Why devsync?
+The package name is **shared-hosting-sync**. Run it as `shared-hosting-sync` or
+use the shorter `devsync` alias shown in examples below. Both commands run the
+same application. Existing `DEVSYNC_*` variables and `~/.devsync/` settings stay
+compatible with development versions.
+
+## Why shared-hosting-sync?
 
 Many shared hosting accounts accept file uploads without offering a deployment
 pipeline. devsync connects your development machine to that hosting account.
@@ -29,6 +34,23 @@ runtime supported by the hosting provider.
 
 ## Installation
 
+Requires **Node.js 24 or newer** and npm. Hosting credentials and access to the
+destination folder are also required.
+
+After npm publication:
+
+```sh
+npm install -g shared-hosting-sync
+shared-hosting-sync --version
+shared-hosting-sync ui
+```
+
+To install a release tarball before publication:
+
+```sh
+npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
+```
+
 For development, install from this checkout:
 
 ```sh
@@ -37,16 +59,8 @@ npm link
 devsync help
 ```
 
-The intended installation after publication is:
-
-```sh
-npm install -g devsync
-```
-
-Use a Node.js version with built-in `node:sqlite` support. This checkout was
-inspected with Node.js 25.9.0. The current package metadata still declares an
-older minimum and needs updating before release.
-You also need hosting credentials and access to the destination folder.
+The SQLite database is built into Node.js; a separate database server or SQLite
+installation is not required. The dashboard stays on this computer.
 
 ## Start from a project folder
 
@@ -345,17 +359,19 @@ The package is in development. Before relying on it for deployments:
   imported settings, and reviewed project saving.
 - Phase 1 fixes destination handling, same-size change detection, path validation,
   and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
-- The package's repository links still contain placeholders. Publication and the
-  public npm package name must be verified before release.
+- Phase 6 prepares `shared-hosting-sync@0.1.0`, including production-only packaging,
+  global installation checks, and Windows/Linux/macOS release checks in CI.
+  Publication requires npm account authentication and final registry acceptance.
 
 See [PRODUCT.md](PRODUCT.md) for product requirements and [ROADMAP.md](ROADMAP.md)
-for the existing implementation roadmap.
+for historical design notes. PHASES.md tracks the current release sequence.
 
 ## Development
 
 ```sh
 npm install
 npm test
+npm run release:check
 ```
 
 The default test command covers ignore rules, uploads, CLI onboarding/deployments
@@ -365,6 +381,13 @@ credentials. Real local FTP, FTPS, and SFTP servers exercise nested uploads,
 same-size edits, empty files, larger transfers, exclusions, and failures.
 No production hosting account has been used; provider-specific checks remain
 necessary before relying on a particular host.
+
+`release:check` runs the suite through the package's prepack gate, checks the
+tarball file list, installs it into a disposable global prefix, and exercises both
+command names, onboarding, FTP deploy/sync, and dashboard assets from another
+directory. It writes a tarball, manifest, and SHA-256 checksum to `artifacts/`.
+Tests, fixtures, development scripts, local state, and credentials are excluded
+from the published package. See [RELEASING.md](RELEASING.md) for the release process.
 
 ## License
 

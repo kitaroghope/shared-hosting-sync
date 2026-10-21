@@ -1,5 +1,5 @@
 const VALUE_FLAGS = new Set(['transport', 'env-file', 'remote-path', 'host', 'username', 'port', 'label', 'path'])
-const BOOL_FLAGS = new Set(['dry-run', 'force', 'plan', 'sync', 'edit', 'browse', 'browser', 'help'])
+const BOOL_FLAGS = new Set(['dry-run', 'force', 'plan', 'sync', 'edit', 'browse', 'browser', 'help', 'version'])
 
 export function parseArgs(argv) {
   let command
@@ -8,6 +8,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '-h') { flags.help = true; continue }
+    if (arg === '-v') { flags.version = true; continue }
     if (!arg.startsWith('--')) {
       if (command === undefined) command = arg
       else positional.push(arg)

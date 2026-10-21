@@ -40,6 +40,7 @@ import { validateRemotePath } from './paths.js'
 import { prepareConfiguration, assertLocalFolder } from './onboarding.js'
 import { createPrompter } from './prompt.js'
 import { parseArgs } from './arguments.js'
+import { name, version } from './metadata.js'
 
 const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
@@ -453,7 +454,8 @@ const COMMANDS = {
 
   help() {
     console.log(`
-${C.b('devsync')} — global local-dev → hosting sync (v2)
+${C.b(name)} ${version} — local projects → shared hosting
+Run commands as shared-hosting-sync or its shorter alias devsync.
 
 ${C.b('first-time setup')}
   devsync                             onboard the current folder and preview
@@ -494,6 +496,7 @@ ${C.b('other')}
 
 async function main() {
   try {
+    if (flags.version || cmd === 'version') { console.log(`${name} ${version}`); return }
     if (flags.help || cmd === 'help') return COMMANDS.help()
     if (!cmd) return flags.sync ? await COMMANDS.sync() : await COMMANDS.plan()
     if (!Object.hasOwn(COMMANDS, cmd)) throw new Error(`unknown command: ${cmd}. Run devsync help`)

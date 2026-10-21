@@ -6,6 +6,7 @@
 // Errors are returned as { error: 'message' } with appropriate status.
 
 import path from 'node:path'
+import { name, version } from '../metadata.js'
 import { mutateProject } from '../core/operationLock.js'
 import { ENV_SCHEMA } from '../core/envSchema.js'
 import { validateRemotePath } from '../paths.js'
@@ -79,7 +80,7 @@ export async function handle(req, res, { onboarding, deployments } = {}) {
 
   // ---------- public ----------
   if (route === 'GET /api/health') {
-    return json(res, 200, { ok: true, name: 'devsync', version: '2.0.0-mvp' })
+    return json(res, 200, { ok: true, name, version })
   }
 
   if (route === 'GET /api/session') {

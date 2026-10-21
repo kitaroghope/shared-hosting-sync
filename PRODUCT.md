@@ -1,4 +1,7 @@
-# devsync product requirements
+# shared-hosting-sync product requirements
+
+Published package/primary command: `shared-hosting-sync`. The `devsync` command
+alias and `DEVSYNC_*` configuration names remain supported.
 
 devsync is a global npm package for deploying local projects to shared hosting.
 The CLI and local browser UI are first-class alternative controls. Users must be

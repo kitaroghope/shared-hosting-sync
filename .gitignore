@@ -21,3 +21,4 @@ session.token
 
 # Local package builds.
 *.tgz
+/artifacts/
