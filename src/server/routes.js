@@ -72,7 +72,7 @@ function shapeOverrides(rows) {
   }))
 }
 
-export async function handle(req, res, { onboarding } = {}) {
+export async function handle(req, res, { onboarding, deployments } = {}) {
   const url = new URL(req.url, 'http://127.0.0.1')
   const route = `${req.method} ${url.pathname}`
 
@@ -109,6 +109,18 @@ export async function handle(req, res, { onboarding } = {}) {
 
   // All routes below need auth.
   if (!sessionOk(req, res)) return
+
+  const deploymentMatch = url.pathname.match(/^\/api\/projects\/(\d+)\/(activity|preview|deploy|sync|watch)(\/stop)?$/)
+  if (deploymentMatch) {
+    if (!deployments) return json(res, 503, { error: 'Deployment service is unavailable' })
+    const [, id, action, stop] = deploymentMatch
+    try {
+      if (req.method === 'GET' && action === 'activity' && !stop) return json(res, 200, deployments.activity(id))
+      if (req.method === 'POST' && action === 'watch' && stop) return json(res, 202, deployments.stop(id))
+      if (req.method === 'POST' && !stop && action !== 'activity') return json(res, 202, deployments.start(id, action, await readJson(req)))
+      return json(res, 405, { error: 'Method not allowed' })
+    } catch (error) { return json(res, error.statusCode || 400, { error: error.message }) }
+  }
 
   if (route === 'GET /api/local') {
     try { return json(res, 200, await browseLocal(url.searchParams.get('path'))) }
@@ -163,6 +175,7 @@ export async function handle(req, res, { onboarding } = {}) {
   if (url.pathname.startsWith('/api/projects/') && req.method === 'DELETE') {
     const id = Number(url.pathname.split('/').pop())
     if (!Number.isFinite(id)) return json(res, 400, { error: 'bad id' })
+    try { deployments?.ensureEditable(id) } catch (error) { return json(res, 409, { error: error.message }) }
     const ok = deleteProject(id)
     return json(res, ok ? 200 : 404, { ok })
   }
@@ -188,6 +201,7 @@ export async function handle(req, res, { onboarding } = {}) {
     }
 
     if (req.method === 'PUT') {
+      try { deployments?.ensureEditable(id) } catch (error) { return json(res, 409, { error: error.message }) }
       let body
       try { body = await readJson(req) } catch (e) { return json(res, 400, { error: e.message }) }
       // body = { entries: [{ key, value, isSecret }] }

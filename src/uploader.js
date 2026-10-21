@@ -25,7 +25,7 @@ export function ancestorsOf(remotePath) {
 }
 
 /** Every eligible local file, as absolute paths. */
-export function collectFiles(projectRoot, matcher, { includeIgnored = false } = {}) {
+export function collectFiles(projectRoot, matcher, { includeIgnored = false, onExcluded } = {}) {
   const out = []
   const relOf = (abs) => path.relative(projectRoot, abs).split(path.sep).join('/')
   const walk = (dir) => {
@@ -40,9 +40,12 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false } = 
       if (e.isSymbolicLink()) continue
       if (e.isDirectory()) {
         if (includeIgnored || matcher.shouldWatch(abs)) walk(abs)
+        else if (onExcluded) onExcluded({ rel: relOf(abs) + '/', reason: matcher.reason(relOf(abs)) })
       } else if (e.isFile()) {
         // includeIgnored is a diagnostic mode: show everything, filter nothing.
-        if (includeIgnored || matcher.reason(relOf(abs)) === null) out.push(abs)
+        const reason = matcher.reason(relOf(abs))
+        if (includeIgnored || reason === null) out.push(abs)
+        else if (onExcluded) onExcluded({ rel: relOf(abs), reason })
       }
     }
   }
@@ -54,16 +57,21 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false } = 
  * Build the list of uploads without touching the network for writes.
  * Size differences upload immediately; equal sizes require a content match.
  */
-export async function buildPlan(project, matcher, transport, { force = false } = {}) {
+export async function buildPlan(project, matcher, transport, { force = false, onProgress } = {}) {
   const { localPath, remotePath } = project
   validateRemotePath(remotePath)
   if (!fs.statSync(localPath).isDirectory()) throw new Error('Local source must be a directory')
-  const files = collectFiles(localPath, matcher)
+  const excluded = []
+  let excludedCount = 0
+  const files = collectFiles(localPath, matcher, { onExcluded: (entry) => {
+    excludedCount++
+    if (excluded.length < 200) excluded.push(entry)
+  } })
   const uploads = []
   const skipped = []
   let comparedBytes = 0
 
-  for (const abs of files) {
+  for (const [index, abs] of files.entries()) {
     const rel = path.relative(localPath, abs).split(path.sep).join('/')
     const remote = toRemotePath(localPath, remotePath, abs)
     let localStat
@@ -74,6 +82,8 @@ export async function buildPlan(project, matcher, transport, { force = false } =
       if (err.code === 'ENOENT') continue
       throw err
     }
+
+    if (onProgress) onProgress({ phase: 'planning', item: { rel, remote, bytes: localStat.size }, index, total: files.length })
 
     const remoteStat = await transport.stat(remote)
     if (remoteStat?.isDir) throw new Error(`Remote file destination is a directory: ${remote}`)
@@ -93,7 +103,7 @@ export async function buildPlan(project, matcher, transport, { force = false } =
     comparedBytes += localStat.size
   }
 
-  return { uploads, skipped, totalFiles: files.length, comparedBytes }
+  return { uploads, skipped, excluded, excludedCount, totalFiles: files.length, comparedBytes }
 }
 
 /**
@@ -115,7 +125,7 @@ export async function uploadOne(transport, item) {
   }
 }
 
-export async function runPlan(plan, transport, { dryRun = false, onProgress } = {}) {
+export async function runPlan(plan, transport, { dryRun = false, onProgress, onFileResult } = {}) {
   const done = []
   const failed = []
   let bytes = 0
@@ -126,14 +136,17 @@ export async function runPlan(plan, transport, { dryRun = false, onProgress } = 
     if (dryRun) {
       done.push({ rel: item.rel, bytes: item.bytes })
       bytes += item.bytes
+      if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: true, dryRun: true, bytes })
       continue
     }
     try {
       await uploadOne(transport, item)
       done.push({ rel: item.rel, bytes: item.bytes })
       bytes += item.bytes
+      if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: true, dryRun: false, bytes })
     } catch (err) {
       failed.push({ rel: item.rel, error: err.message })
+      if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: false, error: err.message, dryRun: false, bytes })
     }
   }
 

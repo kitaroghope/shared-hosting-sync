@@ -23,8 +23,10 @@ must not require further terminal commands.
 As of 21 October 2026, the CLI supports `.env` onboarding, terminal-only credential
 setup, destination browsing, preview, deploy, sync, and watch. The UI now supports
 complete folder selection, `.env` discovery, hosting details, connection testing,
-server browsing, review, and project saving. UI upload previews, deployment, and
-watch controls remain pending. Full parity is required but not yet implemented.
+server browsing, review, and project saving, plus upload previews, deployment,
+changed-file sync, watch start/stop, progress, and file errors. Both interfaces
+support the core workflow. Connection recovery, cross-process coordination,
+cross-protocol server validation, and release preparation remain pending.
 
 ## Setup paths
 
@@ -80,5 +82,5 @@ Projects onboarded in the UI must immediately work through the CLI and vice vers
 
 The CLI setup path is implemented. Resolution reads `.env` and legacy `.devsync.env`
 from the selected project folder; explicit files and command options are supported.
-UI onboarding is implemented through project saving. UI deployment controls remain
-planned. See PHASES.md for implementation milestones.
+UI onboarding and deployment controls are implemented. See PHASES.md for
+implementation milestones and remaining reliability work.

@@ -27,10 +27,12 @@ import {
   setEnvOverrides,
   saveConfiguration,
   setStatus,
+  recordSync,
   hasSecrets
 } from './core/projects.js'
 import { resolveEnv, credsFromResolved, settingError } from './core/envResolver.js'
 import { ENV_SCHEMA } from './core/envSchema.js'
+import { resolveDeployment } from './core/deployment.js'
 import { startServer } from './server/index.js'
 import { HOME } from './config.js'
 import { validateRemotePath } from './paths.js'
@@ -126,16 +128,19 @@ async function resolveProjectOrCwd(label) {
 }
 
 async function credsForProject(project, { deployment = false } = {}) {
+  if (deployment) {
+    const context = resolveDeployment(project, {
+      envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
+    })
+    project.remotePath = context.project.remotePath
+    return { ...context.creds, dryRun: context.dryRun, debounceMs: context.debounceMs }
+  }
   const r = resolveEnv(project.id, {
     envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
   })
-  const errors = ENV_SCHEMA.filter((s) => deployment || s.key !== 'DEVSYNC_REMOTE_PATH')
+  const errors = ENV_SCHEMA.filter((s) => s.key !== 'DEVSYNC_REMOTE_PATH')
     .map((s) => settingError(s.key, r.values[s.key], r.values)).filter(Boolean)
   if (errors.length) throw new Error(`${errors.join('; ')}. Update the project .env or run devsync setup ${project.label}.`)
-  if (deployment) {
-    project.remotePath = validateRemotePath(r.values.DEVSYNC_REMOTE_PATH)
-    assertLocalFolder(project.localPath)
-  }
   return {
     ...credsFromResolved(r.values),
     dryRun: ['true', '1', true].includes(r.values.DEVSYNC_DRY_RUN),
@@ -311,6 +316,7 @@ const COMMANDS = {
       }
       if (!p.uploads.length) {
         ok('nothing to upload — already up to date')
+        recordSync(proj.id, 0)
         setStatus(proj.id, 'idle')
         return
       }
@@ -332,6 +338,7 @@ const COMMANDS = {
         for (const f of r.failed) console.log(`  ${C.r('✗')} ${f.rel} — ${f.error}`)
         process.exitCode = 1
       } else {
+        if (!dryRun) recordSync(proj.id, r.bytes)
         setStatus(proj.id, 'idle', { error: null })
       }
     } catch (e) {
@@ -370,8 +377,9 @@ const COMMANDS = {
         setStatus(proj.id, s.failed.length ? 'error' : 'watching', {
           error: s.failed.length ? s.failed.map((f) => `${f.rel}: ${f.error}`).join('; ') : null
         })
-        if (s.uploaded) {
-          console.log(C.g(`  ${s.dryRun ? 'preview' : '↑'} ${s.uploaded} file(s), ${kb(s.bytes)}`) + C.dim(`  (${s.considered} scanned, ${s.skipped} unchanged)`))
+        if (!s.dryRun && !s.failed.length) recordSync(proj.id, s.bytes)
+        if (s.uploaded || s.dryRun && s.planned) {
+          console.log(C.g(`  ${s.dryRun ? 'preview' : '↑'} ${s.dryRun ? s.planned : s.uploaded} file(s), ${kb(s.bytes)}`) + C.dim(`  (${s.considered} scanned, ${s.skipped} unchanged)`))
         }
         for (const f of s.failed) console.log(C.r(`  ✗ ${f.rel} — ${f.error}`))
       }

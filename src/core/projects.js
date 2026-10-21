@@ -104,6 +104,11 @@ export function setStatus(id, status, { error = null } = {}) {
   ).run(status, error, now(), id)
 }
 
+export function recordSync(id, bytes) {
+  openDb().prepare('UPDATE projects SET last_sync_at = ?, last_upload_bytes = ? WHERE id = ?')
+    .run(now(), bytes, id)
+}
+
 // ---------- secrets ----------
 
 /** Persist creds for a project. Replaces the previous row. */

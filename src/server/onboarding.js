@@ -38,11 +38,12 @@ export function safeConnectionError(error, values) {
 }
 
 export class OnboardingService {
-  constructor({ connect = createTransport, now = Date.now, maxAgeMs = 30 * 60 * 1000 } = {}) {
+  constructor({ connect = createTransport, now = Date.now, maxAgeMs = 30 * 60 * 1000, ensureEditable = () => {} } = {}) {
     this.connect = connect
     this.now = now
     this.maxAgeMs = maxAgeMs
     this.drafts = new Map()
+    this.ensureEditable = ensureEditable
   }
 
   clear() { this.drafts.clear() }
@@ -72,6 +73,7 @@ export class OnboardingService {
     if (projectId && !project) throw fail('Project not found', 404)
     const folder = assertLocalFolder(project?.localPath || localPath)
     project ||= getProjectByLocalPath(folder)
+    this.ensureEditable(project?.id)
     const resolved = resolveEnv(project?.id, { localPath: folder, useEnvFileEnvironment: false })
     if (resolved.sources.DEVSYNC_TRANSPORT === 'default') {
       delete resolved.values.DEVSYNC_TRANSPORT
@@ -156,6 +158,7 @@ export class OnboardingService {
 
   async save(id, label) {
     return this.operation(id, async (draft) => {
+      this.ensureEditable(draft.projectId)
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 80 || /[\x00-\x1f\x7f]/.test(label)) throw fail('Enter a project name of 1–80 characters')
       label = label.trim()
       const duplicate = getProjectByLabel(label)
@@ -166,6 +169,7 @@ export class OnboardingService {
       const remotePath = validateRemotePath(draft.values.DEVSYNC_REMOTE_PATH)
       await this.inspect(draft, remotePath)
       assertLocalFolder(draft.localPath)
+      this.ensureEditable(draft.projectId)
       ensureDeployignore(draft.localPath)
       let project = draft.projectId ? getProject(draft.projectId) : null
       if (draft.projectId && !project) throw fail('Project was removed. Start setup again.', 404)

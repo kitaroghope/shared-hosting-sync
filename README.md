@@ -7,8 +7,7 @@ Use the terminal or a local browser dashboard. Both interfaces are intended to
 control the same projects, settings, and deployment operations.
 
 > **Development status:** This README defines the agreed product experience.
-> CLI and UI onboarding, terminal deployment, and sync are implemented.
-> UI upload previews, deployment, and watch controls are still planned. See
+> CLI and UI onboarding, previews, deployment, sync, and watching are implemented. See
 > [Current implementation](#current-implementation) for remaining release work.
 
 ## Why devsync?
@@ -156,9 +155,24 @@ Use **Edit setup** on a saved project to revisit its details. Settings loaded fr
 `.env` retain precedence on later runs; the dashboard warns when you edit one of
 those settings. The file itself is never changed.
 
-**Currently:** UI onboarding and project settings are available. Upload previews,
-deployment, sync, and watch controls in the UI are Phase 4. Until then, saved
-projects can be deployed using `devsync deploy <label>` from the terminal.
+After saving, use **Preview uploads** to inspect changed files or all eligible
+files, including their server destinations and exclusions. **Deploy all files**
+uploads every eligible file; **Sync changes** uploads only changed content.
+Enable **Preview only for deploy, sync and watch** to inspect without uploading.
+A saved `DEVSYNC_DRY_RUN=true` setting keeps this option enabled and locked.
+
+**Start watching** syncs current files first, then follows local saves.
+**Stop watching** waits for the current batch to finish. Closing the browser tab
+does not stop operations; stopping the `devsync ui` command drains uploads and
+stops its watchers. Restart watching after changing `.env` or `.deployignore`,
+because each watch session uses the settings and exclusions loaded at its start.
+
+The dashboard shows file progress, failed files, the last successful sync, and
+the latest 100 activity entries. File lists show up to 200 entries per category;
+excluded directories represent their contents. Activity is held in memory rather
+than a persistent deployment history. A project cannot be edited or run twice
+at once within the dashboard; coordination with separate CLI processes remains
+part of Phase 5.
 
 ## Environment variables
 
@@ -306,7 +320,8 @@ The package is in development. Before relying on it for deployments:
 
 - CLI onboarding, `.env` discovery, hidden password prompts, server-folder
   selection, and `deploy` are implemented in Phase 2.
-- UI deployment and watch controls are planned.
+- Phase 4 adds UI upload previews, deploy/sync, watch start/stop, progress, and
+  actionable file errors through the shared deployment engine.
 - Phase 3 adds complete UI onboarding, local/server folder pickers, secure
   imported settings, and reviewed project saving.
 - Phase 1 fixes destination handling, same-size change detection, path validation,
@@ -326,7 +341,7 @@ npm test
 
 The default test command covers ignore rules, uploads, CLI onboarding/deployments
 against a local FTP server, password prompts, server browsing, SFTP adapter
-contracts, UI onboarding APIs, watch cycles, configuration, the project database, and encrypted
+contracts, UI onboarding and deployment APIs, watch cycles, configuration, the project database, and encrypted
 credentials. SFTP server and live-host validation remain
 part of the later cross-protocol reliability work.
 

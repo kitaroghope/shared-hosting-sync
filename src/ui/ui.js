@@ -1,9 +1,12 @@
+import { DeploymentPanel } from './deployments.js'
+
 const $ = (selector) => document.querySelector(selector)
 const $$ = (selector) => [...document.querySelectorAll(selector)]
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const state = { projects: [], current: null, draft: null, step: 0, busy: false, local: null, remote: null, verifiedPath: null, fileOverrides: false }
 let session
 let renderedStep = 0
+const deploymentPanel = new DeploymentPanel({ api, run: act, isBusy: () => state.busy, message })
 
 async function api(method, url, body) {
   if (!session) {
@@ -61,6 +64,7 @@ async function refreshProjects() {
 }
 
 async function discardDraft() {
+  deploymentPanel.close()
   if (state.draft) {
     try { await api('DELETE', `/api/onboarding/${state.draft.id}`) } catch {}
   }
@@ -73,6 +77,7 @@ async function discardDraft() {
 }
 
 function welcome() {
+  deploymentPanel.close()
   $('#pane').innerHTML = `<div id="message" class="notice"></div><div class="welcome"><p class="eyebrow">FROM YOUR FOLDER TO YOUR HOSTING</p><h1>A simpler way to get your project online.</h1><p class="sub">Choose a local folder, connect your hosting account, and pick where your files belong.</p><button class="primary" id="welcomeAdd">${state.projects.length ? 'Add another project' : 'Add your first project'}</button><div class="cards"><article class="card"><div class="number">01 / LOCAL</div><h3>Start with your files</h3><p>Choose your project or build folder. We’ll pick up hosting settings from its .env.</p></article><article class="card"><div class="number">02 / CONNECT</div><h3>Bring your hosting</h3><p>Use FTP, FTPS, or SFTP details from your hosting provider.</p></article><article class="card"><div class="number">03 / DESTINATION</div><h3>Choose the right folder</h3><p>Browse your server folders and save the destination for this project.</p></article></div></div>`
   $('#welcomeAdd').onclick = () => act(startNew)
   setBusy(state.busy)
@@ -242,6 +247,7 @@ function renderRemote() {
 }
 
 async function openProject(id) {
+  deploymentPanel.close()
   const data = await api('GET', `/api/projects/${id}/env`)
   state.current = { id, ...data }
   state.step = 0
@@ -249,7 +255,7 @@ async function openProject(id) {
   const values = config.values
   $('#pane').innerHTML = `<p class="eyebrow">SAVED PROJECT</p><div class="summary-head"><div><h1>${esc(data.label)}</h1><p class="sub">${esc(data.localPath)}</p></div><span class="ready">● ${Object.keys(config.errors).length ? 'Setup needed' : 'Project configured'}</span></div><div id="message" class="notice"></div><section class="summary-card"><h2>Source → destination</h2><dl class="review"><dt>Local source</dt><dd>${esc(data.localPath)}</dd><dt>Server folder</dt><dd>${esc(values.DEVSYNC_REMOTE_PATH || 'Not configured')}</dd><dt>Connection</dt><dd>${esc(values.DEVSYNC_TRANSPORT?.toUpperCase())} · ${esc(values.DEVSYNC_HOST || 'Not configured')}:${esc(values.DEVSYNC_PORT)}</dd><dt>Username</dt><dd>${esc(values.DEVSYNC_USERNAME || 'Not configured')}</dd><dt>Credentials</dt><dd>${config.secrets.DEVSYNC_PASSWORD || config.secrets.DEVSYNC_PRIVATE_KEY ? 'Supplied · never shown in this browser' : 'Not configured'}</dd></dl><div class="actions"><button class="primary" id="editProject">Edit setup</button><button class="secondary" id="testProject">Test connection</button><span class="spacer"></span><button class="danger" id="deleteProject">Remove project</button></div></section>`
   if (Object.keys(config.errors).length) message(Object.values(config.errors).join('; '), 'warning')
-  $('#editProject').onclick = () => act(async () => { state.draft = await api('POST', '/api/onboarding', { projectId: id }); state.fileOverrides = false; state.step = 2; renderWizard() })
+  $('#editProject').onclick = () => act(async () => { state.draft = await api('POST', '/api/onboarding', { projectId: id }); deploymentPanel.close(); state.fileOverrides = false; state.step = 2; renderWizard() })
   $('#testProject').onclick = () => act(async () => { await api('POST', '/api/test', { projectId: id }); message('Connection test passed.', 'success') }, 'Testing your hosting connection…')
   $('#deleteProject').onclick = () => act(async () => {
     if (!confirm(`Remove "${data.label}" from devsync? Local and server files stay in place.`)) return
@@ -259,6 +265,11 @@ async function openProject(id) {
     welcome()
   })
   await refreshProjects()
+  const deploymentElement = document.createElement('section')
+  deploymentElement.id = 'deploymentPanel'
+  deploymentElement.className = 'summary-card operation-card'
+  $('#pane').appendChild(deploymentElement)
+  await deploymentPanel.open(id, config)
   window.scrollTo(0, 0)
   setBusy(state.busy)
 }

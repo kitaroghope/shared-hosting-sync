@@ -71,12 +71,27 @@ failures, CLI compatibility, draft expiry, and origin/host checks. The actual
 browser flow was exercised for imported credentials, folder selection, review,
 save, editing, manual entry, and cancellation.
 
-## Phase 4: UI deployment — next
+## Phase 4: UI deployment — implemented 21 October 2026
 
-Preview, deploy, sync, start/stop watching, progress, and actionable errors using
-the same deployment operations as the CLI.
+- Saved projects offer changed/all-file previews, deploy, sync, and watch controls
+  through the same configuration, exclusions, and uploader used by the CLI.
+- Previews show destinations, unchanged files, and excluded entries without
+  writing remote files. Request-level and saved dry-run settings prevent uploads.
+- Background operations expose file progress, completion, failed files, last
+  successful sync, and the latest 100 activity entries. Plan lists are capped at
+  200 entries per category; counts remain complete.
+- Watching performs an initial sync, then follows saves. Stopping drains the
+  current batch and discards pending work; server shutdown also drains operations.
+  Closing or refreshing a browser tab leaves the server-side operation running.
+- Dashboard actions cannot overlap for one project, and active projects cannot
+  be edited or removed there. Cross-process CLI coordination remains Phase 5.
 
-## Phase 5: Reliability and testing — planned
+Validation includes real FTP HTTP operations, read-only previews, same-size edits,
+dry-run settings, watch readiness/stop behavior, shutdown, concurrent-action guards,
+progress, and failed uploads. Browser checks cover deploy, unchanged sync, watching
+across refresh, stopping, previews, failure display, and successful retry.
+
+## Phase 5: Reliability and testing — next
 
 Connection recovery, overlapping-upload prevention, exclusion workflows, and
 realistic FTP/FTPS/SFTP end-to-end checks.

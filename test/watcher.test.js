@@ -28,3 +28,31 @@ test('watch cycles preserve destination and upload subsequent same-size edits', 
   assert.equal(transport.remote.public_html.site['index.html'].content, 'new!')
   assert.ok(transport.calls.filter((c) => c.method === 'put').every((c) => c.remotePath.startsWith('/public_html/site/')))
 })
+
+test('stop drains an in-flight cycle and drops pending changes', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-watch-stop-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'index.html')
+  fs.writeFileSync(file, 'old!')
+  const transport = createMockTransport()
+  let release, entered
+  const gate = new Promise((resolve) => { release = resolve })
+  const uploading = new Promise((resolve) => { entered = resolve })
+  const put = transport.put.bind(transport)
+  transport.put = async (...args) => { entered(); await gate; return put(...args) }
+  const watcher = new ProjectWatcher({ localPath: root, remotePath: '/site' }, buildMatcher(root), transport)
+  watcher.queue(file, 'changed')
+  const cycle = watcher.flush()
+  await uploading
+  watcher.queue(file, 'changed')
+  let stopped = false
+  const stopping = watcher.stop().then(() => { stopped = true })
+  await Promise.resolve()
+  assert.equal(stopped, false)
+  release()
+  await stopping
+  await cycle
+  assert.equal(watcher.pending.size, 0)
+  assert.equal(watcher.stats.cycles, 1)
+  assert.equal(transport.calls.filter((call) => call.method === 'put').length, 1)
+})

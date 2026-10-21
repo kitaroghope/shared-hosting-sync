@@ -6,17 +6,20 @@ import { fileURLToPath } from 'node:url'
 import { handle } from './routes.js'
 import { writeSessionToken, readSessionToken } from './session.js'
 import { OnboardingService } from './onboarding.js'
+import { DeploymentService } from './deployments.js'
 
 const UI_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui')
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']],
-  ['/ui.js', ['ui.js', 'application/javascript']], ['/style.css', ['style.css', 'text/css']]
+  ['/ui.js', ['ui.js', 'application/javascript']], ['/style.css', ['style.css', 'text/css']],
+  ['/deployments.js', ['deployments.js', 'application/javascript']]
 ])
 
 export async function startServer({ port = 5180, host = '127.0.0.1', openBrowser = true } = {}) {
   if (host !== '127.0.0.1') throw new Error('The dashboard must bind to 127.0.0.1')
   if (!readSessionToken()) writeSessionToken()
-  const onboarding = new OnboardingService()
+  const deployments = new DeploymentService()
+  const onboarding = new OnboardingService({ ensureEditable: (id) => deployments.ensureEditable(id) })
   const server = http.createServer(async (req, res) => {
     const actualPort = server.address().port
     const hosts = [`127.0.0.1:${actualPort}`, `localhost:${actualPort}`]
@@ -30,7 +33,7 @@ export async function startServer({ port = 5180, host = '127.0.0.1', openBrowser
     res.setHeader('cache-control', 'no-store')
     res.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
     if (req.url.startsWith('/api/')) {
-      try { await handle(req, res, { onboarding }) }
+      try { await handle(req, res, { onboarding, deployments }) }
       catch {
         if (!res.headersSent) {
           res.writeHead(500, { 'content-type': 'application/json' })
@@ -51,10 +54,14 @@ export async function startServer({ port = 5180, host = '127.0.0.1', openBrowser
   let closing
   const close = () => {
     if (!closing) {
-      onboarding.clear()
       process.off('SIGINT', shutdown)
       process.off('SIGTERM', shutdown)
-      closing = new Promise((resolve) => server.close(resolve))
+      closing = (async () => {
+        const httpClosed = new Promise((resolve) => server.close(resolve))
+        await deployments.close()
+        onboarding.clear()
+        await httpClosed
+      })()
     }
     return closing
   }
