@@ -9,10 +9,18 @@ export function createPrompter(input = process.stdin, output = process.stdout) {
   const interactive = !!input.isTTY && !!output.isTTY
   const terminalOutput = new Writable({
     write(chunk, encoding, callback) {
-      if (muted) callback()
-      else output.write(chunk, encoding, callback)
+      output.write(chunk, encoding, callback)
     }
   })
+  // Decide visibility when readline enqueues output. Checking inside _write
+  // drops an already queued prompt when the destination applies backpressure.
+  const enqueue = terminalOutput.write.bind(terminalOutput)
+  terminalOutput.write = (chunk, encoding, callback) => {
+    if (!muted) return enqueue(chunk, encoding, callback)
+    if (typeof encoding === 'function') encoding()
+    else callback?.()
+    return true
+  }
   return {
     interactive,
     async ask({ key, label = key, secret = false, defaultValue }) {
@@ -32,7 +40,7 @@ export function createPrompter(input = process.stdin, output = process.stdout) {
         return value === '' && defaultValue !== undefined ? String(defaultValue) : value
       } finally {
         muted = false
-        if (secret) output.write('\n')
+        if (secret) terminalOutput.write('\n')
       }
     },
     close() {

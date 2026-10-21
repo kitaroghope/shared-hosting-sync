@@ -101,18 +101,19 @@ test('password prompt suppresses terminal echo and cancels cleanly', async () =>
   input.isTTY = true
   input.setRawMode = () => {}
   let display = ''
-  const output = new Writable({ write(chunk, encoding, callback) { display += chunk.toString(); callback() } })
+  const output = new Writable({ write(chunk, encoding, callback) { display += chunk.toString(); setImmediate(callback) } })
   output.isTTY = true
   const prompt = createPrompter(input, output)
   try {
     const answer = prompt.ask({ key: 'DEVSYNC_PASSWORD', label: 'Password', secret: true })
     input.write('never-echo-this\r')
     assert.equal(await answer, 'never-echo-this')
-    assert.match(display, /Password/)
-    assert.equal(display.includes('never-echo-this'), false)
     const cancelled = prompt.ask({ key: 'host' })
     input.write('\x03')
     await assert.rejects(cancelled, /cancelled/)
+    await prompt.close()
+    assert.match(display, /Password/)
+    assert.equal(display.includes('never-echo-this'), false)
   } finally { await prompt.close(); input.destroy(); output.end() }
 })
 
