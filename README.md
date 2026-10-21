@@ -7,8 +7,8 @@ Use the terminal or a local browser dashboard. Both interfaces are intended to
 control the same projects, settings, and deployment operations.
 
 > **Development status:** This README defines the agreed product experience.
-> CLI `.env` onboarding, terminal setup, deployment, and sync are implemented.
-> Complete UI onboarding and UI deployment controls are still planned. See
+> CLI and UI onboarding, terminal deployment, and sync are implemented.
+> UI upload previews, deployment, and watch controls are still planned. See
 > [Current implementation](#current-implementation) for remaining release work.
 
 ## Why devsync?
@@ -128,21 +128,37 @@ devsync ui
 The local dashboard opens at `http://127.0.0.1:5180/` by default. Keep the command
 running while using it; press Ctrl+C to stop it.
 
-The intended onboarding flow is:
+The onboarding flow is:
 
 1. Choose **Add project** and browse for a local project folder, or enter its path.
 2. Load hosting settings from that folder's `.env`, if present.
 3. Enter any missing FTP, FTPS, or SFTP details and test the connection.
 4. Browse the server and select the destination folder.
-5. Save, preview, and choose **Deploy**, **Sync**, or **Watch**.
+5. Review the source and destination, name the project, and choose **Save project**.
 
 You can enter all settings manually without creating an `.env`. The selected
 project folder determines which `.env` is read, regardless of where you launched
-the dashboard. A project saved in the UI must also work from the CLI.
+the dashboard. Saved projects are immediately available to CLI commands too.
 
-**Currently:** The UI supports project registration, manual settings, connection
-testing, and remote browsing. Local folder browsing, `.env` onboarding, upload
-previews, deployment, and watch controls in the UI are planned.
+The local picker starts at your home folder and offers parent navigation, drive
+or filesystem roots, and a path field. The server picker uses the hosting details
+you just entered, so there is no need to save an incomplete project to browse.
+Select an existing server folder with **Use server folder**; `/` is selected only
+when you explicitly choose the account root or supply it in `.env`.
+
+Imported passwords are never returned to the browser. Their presence is shown
+beside an empty password field; leave it blank to keep them or enter a replacement.
+Connection testing and browsing use temporary server-side settings. A project is
+saved only after the connection and destination are checked. Cancelled setups
+create no project, and saving performs no upload or remote deletion.
+
+Use **Edit setup** on a saved project to revisit its details. Settings loaded from
+`.env` retain precedence on later runs; the dashboard warns when you edit one of
+those settings. The file itself is never changed.
+
+**Currently:** UI onboarding and project settings are available. Upload previews,
+deployment, sync, and watch controls in the UI are Phase 4. Until then, saved
+projects can be deployed using `devsync deploy <label>` from the terminal.
 
 ## Environment variables
 
@@ -173,6 +189,10 @@ overrides the file selected by `DEVSYNC_ENV_FILE`. Relative explicit-file paths
 are resolved from the command's working directory. Files inside the project must
 be named `.env`, `.env.*`, or `.devsync.env` so their credentials remain excluded;
 files outside the project can use any name. See [.env.example](.env.example).
+
+These explicit-file options apply to the CLI. UI onboarding always discovers
+settings from the folder selected in the dashboard and ignores `DEVSYNC_ENV_FILE`
+from the process that launched it.
 
 Saved projects read automatic configuration relative to their source folder,
 even when operated from another directory. Setup shows each setting's source and
@@ -287,6 +307,8 @@ The package is in development. Before relying on it for deployments:
 - CLI onboarding, `.env` discovery, hidden password prompts, server-folder
   selection, and `deploy` are implemented in Phase 2.
 - UI deployment and watch controls are planned.
+- Phase 3 adds complete UI onboarding, local/server folder pickers, secure
+  imported settings, and reviewed project saving.
 - Phase 1 fixes destination handling, same-size change detection, path validation,
   and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
 - The package's repository links still contain placeholders. Publication and the
@@ -304,7 +326,7 @@ npm test
 
 The default test command covers ignore rules, uploads, CLI onboarding/deployments
 against a local FTP server, password prompts, server browsing, SFTP adapter
-contracts, watch cycles, configuration, the project database, and encrypted
+contracts, UI onboarding APIs, watch cycles, configuration, the project database, and encrypted
 credentials. SFTP server and live-host validation remain
 part of the later cross-protocol reliability work.
 

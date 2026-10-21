@@ -6,7 +6,6 @@
 // Errors are returned as { error: 'message' } with appropriate status.
 
 import path from 'node:path'
-import fs from 'node:fs'
 import { ENV_SCHEMA } from '../core/envSchema.js'
 import { validateRemotePath } from '../paths.js'
 import {
@@ -14,18 +13,18 @@ import {
   getProject,
   createProject,
   deleteProject,
-  updateProject,
   listEnvOverrides,
   setEnvOverrides,
   setSecrets,
   getSecrets,
-  hasSecrets,
-  effectiveEnv
+  hasSecrets
 } from '../core/projects.js'
 import { checkSession, readSessionToken } from './session.js'
 import { browseRemote, normaliseRemotePath } from './browse.js'
 import { credsFromResolved, resolveEnv } from '../core/envResolver.js'
 import { createTransport } from '../transport/index.js'
+import { browseLocal } from './local.js'
+import { configurationView, validateConnection, safeConnectionError } from './onboarding.js'
 
 function sessionOk(req, res) {
   const tok = req.headers['x-devsync-session']
@@ -47,7 +46,12 @@ function json(res, status, obj) {
 function readJson(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', (c) => chunks.push(c))
+    let bytes = 0
+    req.on('data', (c) => {
+      bytes += c.length
+      if (bytes > 1024 * 1024) reject(new Error('Request body is too large'))
+      else chunks.push(c)
+    })
     req.on('end', () => {
       const buf = Buffer.concat(chunks)
       if (!buf.length) return resolve({})
@@ -68,7 +72,7 @@ function shapeOverrides(rows) {
   }))
 }
 
-export async function handle(req, res) {
+export async function handle(req, res, { onboarding } = {}) {
   const url = new URL(req.url, 'http://127.0.0.1')
   const route = `${req.method} ${url.pathname}`
 
@@ -105,6 +109,27 @@ export async function handle(req, res) {
 
   // All routes below need auth.
   if (!sessionOk(req, res)) return
+
+  if (route === 'GET /api/local') {
+    try { return json(res, 200, await browseLocal(url.searchParams.get('path'))) }
+    catch (error) { return json(res, 400, { error: error.message }) }
+  }
+
+  if (url.pathname === '/api/onboarding' || url.pathname.startsWith('/api/onboarding/')) {
+    if (!onboarding) return json(res, 503, { error: 'Setup service is unavailable' })
+    try {
+      if (route === 'POST /api/onboarding') return json(res, 201, onboarding.load(await readJson(req)))
+      const match = url.pathname.match(/^\/api\/onboarding\/([a-f0-9-]+)(?:\/(test|browse|save))?$/)
+      if (!match) return json(res, 404, { error: 'Setup route not found' })
+      const [, id, action] = match
+      if (req.method === 'PUT' && !action) return json(res, 200, onboarding.update(id, (await readJson(req)).entries))
+      if (req.method === 'DELETE' && !action) { onboarding.remove(id); return json(res, 200, { ok: true }) }
+      if (req.method === 'POST' && action === 'test') return json(res, 200, await onboarding.test(id))
+      if (req.method === 'POST' && action === 'browse') return json(res, 200, await onboarding.browse(id, (await readJson(req)).path || '/'))
+      if (req.method === 'POST' && action === 'save') return json(res, 200, await onboarding.save(id, (await readJson(req)).label))
+      return json(res, 405, { error: 'Method not allowed' })
+    } catch (error) { return json(res, error.statusCode || 400, { error: error.message }) }
+  }
 
   if (route === 'GET /api/projects') {
     const all = listProjects()
@@ -151,13 +176,14 @@ export async function handle(req, res) {
 
     if (req.method === 'GET') {
       const rows = listEnvOverrides(id)
-      const e = effectiveEnv(id, rows.find((r) => r.key === 'DEVSYNC_TRANSPORT')?.value || 'sftp')
+      const e = resolveEnv(id, { useEnvFileEnvironment: false })
       return json(res, 200, {
         label: proj.label,
         localPath: proj.localPath,
         overrides: shapeOverrides(rows),
         effective: { ...e.values, DEVSYNC_PASSWORD: e.values.DEVSYNC_PASSWORD ? '***' : null, DEVSYNC_PRIVATE_KEY: e.values.DEVSYNC_PRIVATE_KEY ? '***' : null },
-        credsSet: hasSecrets(id)
+        credsSet: hasSecrets(id),
+        configuration: configurationView(e)
       })
     }
 
@@ -224,14 +250,14 @@ export async function handle(req, res) {
     if (!Number.isFinite(id)) return json(res, 400, { error: 'projectId required' })
     const proj = getProject(id)
     if (!proj) return json(res, 404, { error: 'project not found' })
-    if (!hasSecrets(id)) return json(res, 400, { error: 'creds not set for this project' })
-    const r = resolveEnv(id, { transport: 'sftp' })
+    const r = resolveEnv(id, { useEnvFileEnvironment: false })
+    try { validateConnection(r.values) } catch (error) { return json(res, 400, { error: error.message }) }
     const creds = credsFromResolved(r.values)
     try {
       const entries = await browseRemote(creds, normaliseRemotePath(sub))
       return json(res, 200, { path: normaliseRemotePath(sub), entries })
     } catch (e) {
-      return json(res, 502, { error: e.message })
+      return json(res, 502, { error: safeConnectionError(e, r.values) })
     }
   }
 
@@ -242,16 +268,18 @@ export async function handle(req, res) {
     const id = Number(body.projectId)
     const proj = getProject(id)
     if (!proj) return json(res, 404, { error: 'project not found' })
-    if (!hasSecrets(id)) return json(res, 400, { error: 'creds not set' })
-    const r = resolveEnv(id, { transport: 'sftp' })
+    const r = resolveEnv(id, { useEnvFileEnvironment: false })
+    try { validateConnection(r.values) } catch (error) { return json(res, 400, { error: error.message }) }
     const creds = credsFromResolved(r.values)
+    let t
     try {
-      const t = await createTransport(creds, creds.transport)
+      t = await createTransport(creds, creds.transport)
       await t.list('/')
-      await t.close()
       return json(res, 200, { ok: true, transport: creds.transport, host: creds.host })
     } catch (e) {
-      return json(res, 502, { error: e.message })
+      return json(res, 502, { error: safeConnectionError(e, r.values) })
+    } finally {
+      if (t) await t.close()
     }
   }
 

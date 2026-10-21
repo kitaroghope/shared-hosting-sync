@@ -1,330 +1,278 @@
-// ui.js — single-page client for the devsync v2 UI.
-//
-// Bootstrap: fetch /api/health (public) + GET /api/session (loopback-only;
-// returns { ok: true }) so we know the server is alive, then list projects.
-// The session token in v2-mvp is read by the CLI/server at start; we don't
-// embed it in the page (the UI is loopback-only, so CORS is not a worry).
+const $ = (selector) => document.querySelector(selector)
+const $$ = (selector) => [...document.querySelectorAll(selector)]
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const state = { projects: [], current: null, draft: null, step: 0, busy: false, local: null, remote: null, verifiedPath: null, fileOverrides: false }
+let session
+let renderedStep = 0
 
-const $ = (sel) => document.querySelector(sel)
-const $$ = (sel) => Array.from(document.querySelectorAll(sel))
-
-const state = {
-  projects: [],
-  current: null,
-  schema: null,
-  form: {},
-  browse: { path: '/', entries: [] }
-}
-
-let _sessionToken = null
-async function getSessionToken() {
-  if (_sessionToken) return _sessionToken
-  const r = await fetch('/api/session')
-  const data = await r.json()
-  if (!data.token) throw new Error('no session token returned')
-  _sessionToken = data.token
-  return _sessionToken
-}
-
-async function api(method, path, body) {
-  const opts = { method, headers: { 'content-type': 'application/json' } }
-  // All API calls require the session token.
-  opts.headers['x-devsync-session'] = await getSessionToken()
-  if (body !== undefined) opts.body = JSON.stringify(body)
-  const r = await fetch(path, opts)
-  let data
-  try { data = await r.json() } catch { data = {} }
-  if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { status: r.status })
+async function api(method, url, body) {
+  if (!session) {
+    const response = await fetch('/api/session')
+    const data = await response.json()
+    if (!response.ok || !data.token) throw new Error(data.error || 'Could not start a local session')
+    session = data.token
+  }
+  const response = await fetch(url, {
+    method, headers: { 'content-type': 'application/json', 'x-devsync-session': session },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'Could not complete that operation')
   return data
 }
 
-function status(msg, kind = 'info', el) {
-  const t = el || $('#pane .status') || makeStatus()
-  t.textContent = msg
-  t.className = 'status ' + kind
-  t.style.display = 'block'
-  if (kind === 'ok') setTimeout(() => { t.style.display = 'none' }, 4000)
-  return t
+function message(text, kind = 'info') {
+  const box = $('#message')
+  if (!box) return
+  box.textContent = text
+  box.className = `notice ${kind}`
+  box.setAttribute('role', kind === 'error' ? 'alert' : 'status')
 }
 
-function makeStatus() {
-  const div = document.createElement('div')
-  div.className = 'status'
-  $('#pane').prepend(div)
-  return div
+function setBusy(busy) {
+  $('#pane').setAttribute('aria-busy', String(busy))
+  $$('button,input,select').forEach((element) => {
+    if (busy) {
+      if (element.dataset.beforeBusy === undefined) element.dataset.beforeBusy = String(element.disabled)
+      element.disabled = true
+    } else if (element.dataset.beforeBusy !== undefined) {
+      element.disabled = element.dataset.beforeBusy === 'true'
+      delete element.dataset.beforeBusy
+    }
+  })
 }
 
-// ---------- project list ----------
+async function act(action, text = '') {
+  if (state.busy) return
+  state.busy = true
+  setBusy(true)
+  if (text) message(text)
+  try { await action() }
+  catch (error) { message(error.message, 'error') }
+  finally { state.busy = false; setBusy(false) }
+}
 
 async function refreshProjects() {
-  const r = await api('GET', '/api/projects')
-  state.projects = r.projects
-  const list = $('#projectList')
-  list.innerHTML = ''
-  if (!state.projects.length) {
-    list.innerHTML = '<div style="color:#6b7280; font-size:12px">No projects yet.</div>'
-    return
-  }
-  for (const p of state.projects) {
-    const btn = document.createElement('button')
-    btn.className = 'proj-item' + (state.current && state.current.id === p.id ? ' active' : '')
-    btn.onclick = () => selectProject(p.id)
-    btn.innerHTML = `
-      <span class="label">${escapeHtml(p.label)}</span>
-      <span class="path" title="${escapeHtml(p.localPath)}">${escapeHtml(p.localPath)}</span>
-      <span class="meta">
-        ${p.credsSet ? '<span class="status-ok">creds ✓</span>' : '<span class="status-error">no creds</span>'}
-        · ${p.lastStatus}
-      </span>`
-    list.appendChild(btn)
-  }
+  state.projects = (await api('GET', '/api/projects')).projects
+  $('#projectCount').textContent = state.projects.length
+  $('#projectList').innerHTML = state.projects.map((project) => `<button class="project ${state.current?.id === project.id ? 'active' : ''}" data-project="${project.id}"><strong>${esc(project.label)}</strong><small title="${esc(project.localPath)}">${esc(project.localPath)}</small></button>`).join('')
+  $$('[data-project]').forEach((button) => { button.onclick = () => act(async () => { await discardDraft(); await openProject(Number(button.dataset.project)) }) })
+  setBusy(state.busy)
 }
 
-async function selectProject(id) {
-  const r = await api('GET', `/api/projects/${id}/env`)
-  state.current = { id, label: r.label, localPath: r.localPath }
-  state.form = {}
-  for (const o of r.overrides) {
-    state.form[o.key] = o
+async function discardDraft() {
+  if (state.draft) {
+    try { await api('DELETE', `/api/onboarding/${state.draft.id}`) } catch {}
   }
-  // For required-but-missing keys, seed an empty override entry
-  for (const s of state.schema.keys) {
-    if (!state.form[s.key]) {
-      state.form[s.key] = { key: s.key, value: null, isSecret: s.secret }
-    }
-  }
-  renderPane()
-  refreshProjects()
+  state.draft = null
+  state.step = 0
+  state.local = null
+  state.remote = null
+  state.verifiedPath = null
+  state.fileOverrides = false
 }
 
-// ---------- pane ----------
-
-function renderPane() {
-  const pane = $('#pane')
-  if (!state.schema) {
-    pane.innerHTML = '<div class="empty">Loading schema…</div>'
-    return
-  }
-  if (!state.current) {
-    pane.innerHTML = `
-      <div class="empty">
-        <h2>Welcome to devsync</h2>
-        <p>Add a project on the left, or pick one if it already exists.</p>
-        <p style="font-size:12px; color:#6b7280">
-          Each project gets its own host, credentials, and remote path.
-          Credentials are encrypted at rest with AES-256-GCM.
-        </p>
-      </div>`
-    return
-  }
-  pane.innerHTML = `
-    <div class="status" id="status"></div>
-    <h2>${escapeHtml(state.current.label)}</h2>
-    <div class="sub">${escapeHtml(state.current.localPath)}</div>
-    <form id="envForm" class="grid"></form>
-    <div class="actions">
-      <button class="primary" type="submit" form="envForm">Save</button>
-      <button class="secondary" type="button" id="testBtn">Test connection</button>
-      <button class="secondary" type="button" id="browseBtn">Browse…</button>
-      <span style="flex:1"></span>
-      <button class="danger" type="button" id="deleteBtn">Delete project</button>
-    </div>
-    <div class="browse" id="browse" style="display:none"></div>
-  `
-  renderForm()
-  $('#envForm').addEventListener('submit', onSave)
-  $('#testBtn').onclick = onTest
-  $('#browseBtn').onclick = onBrowseToggle
-  $('#deleteBtn').onclick = onDelete
+function welcome() {
+  $('#pane').innerHTML = `<div id="message" class="notice"></div><div class="welcome"><p class="eyebrow">FROM YOUR FOLDER TO YOUR HOSTING</p><h1>A simpler way to get your project online.</h1><p class="sub">Choose a local folder, connect your hosting account, and pick where your files belong.</p><button class="primary" id="welcomeAdd">${state.projects.length ? 'Add another project' : 'Add your first project'}</button><div class="cards"><article class="card"><div class="number">01 / LOCAL</div><h3>Start with your files</h3><p>Choose your project or build folder. We’ll pick up hosting settings from its .env.</p></article><article class="card"><div class="number">02 / CONNECT</div><h3>Bring your hosting</h3><p>Use FTP, FTPS, or SFTP details from your hosting provider.</p></article><article class="card"><div class="number">03 / DESTINATION</div><h3>Choose the right folder</h3><p>Browse your server folders and save the destination for this project.</p></article></div></div>`
+  $('#welcomeAdd').onclick = () => act(startNew)
+  setBusy(state.busy)
 }
 
-function renderForm() {
-  const form = $('#envForm')
-  form.innerHTML = ''
-  // Group keys: transport, host/port, auth, remote path, behaviour
-  const groups = [
-    { title: 'Connection', keys: ['DEVSYNC_TRANSPORT', 'DEVSYNC_HOST', 'DEVSYNC_PORT'] },
-    { title: 'Credentials', keys: ['DEVSYNC_USERNAME', 'DEVSYNC_PASSWORD', 'DEVSYNC_PRIVATE_KEY'] },
-    { title: 'Remote', keys: ['DEVSYNC_REMOTE_PATH'] },
-    { title: 'Behaviour', keys: ['DEVSYNC_IGNORE_DELETES', 'DEVSYNC_DRY_RUN', 'DEVSYNC_DEBOUNCE_MS'] }
-  ]
-  for (const g of groups) {
-    const fields = state.schema.keys.filter((s) => g.keys.includes(s.key))
-    if (!fields.length) continue
-    const wrap = document.createElement('div')
-    wrap.innerHTML = `<h3 style="margin:14px 0 6px; font-size:11px; color:#93c5fd; text-transform:uppercase; letter-spacing:.8px">${g.title}</h3>`
-    const grid = document.createElement('div')
-    grid.className = 'grid cols-2'
-    for (const s of fields) grid.appendChild(fieldEl(s))
-    wrap.appendChild(grid)
-    form.appendChild(wrap)
+async function startNew() {
+  await discardDraft()
+  state.current = null
+  state.step = 1
+  await refreshProjects()
+  renderWizard()
+}
+
+function source(key) {
+  const value = state.draft?.sources[key]
+  const supplied = state.draft?.secrets[key] || state.draft?.values[key] !== '' && state.draft?.values[key] !== undefined
+  if (value === 'default' && !supplied && key !== 'DEVSYNC_PORT') {
+    return ['DEVSYNC_HOST', 'DEVSYNC_USERNAME', 'DEVSYNC_TRANSPORT'].includes(key) ? '<span class="source">Needed</span>' : ''
   }
+  const names = { default: 'Automatic', ui: 'Entered here', override: 'Saved', secret: 'Saved' }
+  return value ? `<span class="source">${esc(names[value] || value)}</span>` : ''
 }
 
-function fieldEl(s) {
-  const cur = state.form[s.key] || { value: null, isSecret: false }
-  const isSecret = s.secret || cur.isSecret
-  const presentSecret = isSecret && cur.present
-  const value = presentSecret ? '' : (cur.value ?? '')
-  const div = document.createElement('div')
-  div.className = 'field' + (isSecret ? ' secret' : '')
-  div.innerHTML = `
-    <label>${escapeHtml(s.label)}${s.required ? ' <span style="color:#fca5a5">*</span>' : ''}</label>
-    ${renderInput(s, value, isSecret)}
-    <div class="help">${escapeHtml(s.help || '')}${presentSecret ? ' <span class="badge ok">stored</span>' : ''}</div>
-  `
-  return div
+function input(key, label, { secret = false, type = 'text', optional = false } = {}) {
+  const draft = state.draft
+  const automaticPort = key === 'DEVSYNC_PORT' && draft.sources[key] === 'default'
+  const value = secret || automaticPort ? '' : draft.values[key]
+  const present = draft.secrets[key]
+  const placeholder = present ? 'Already supplied — leave blank to keep' : automaticPort ? `Automatic (${draft.values.DEVSYNC_TRANSPORT === 'sftp' ? 22 : 21})` : ''
+  return `<div class="field"><label for="${key}">${esc(label)}${optional ? ' <span class="muted">(optional)</span>' : ''}${source(key)}</label><input id="${key}" name="${key}" type="${secret ? 'password' : type}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off">${present ? `<label class="check"><input type="checkbox" data-clear="${key}">Remove supplied ${key === 'DEVSYNC_PASSWORD' ? 'password' : 'key'}</label>` : ''}</div>`
 }
 
-function renderInput(s, value, isSecret) {
-  if (s.type === 'enum') {
-    const opts = s.values.map((v) => `<option value="${v}"${v === value ? ' selected' : ''}>${v}</option>`).join('')
-    return `<select name="${s.key}">${opts}</select>`
+function renderWizard() {
+  const draft = state.draft
+  const steps = ['Local folder', 'Hosting', 'Destination', 'Review']
+  const step = state.step
+  const changedStep = renderedStep !== step
+  renderedStep = step
+  let content = ''
+  if (step === 1) {
+    content = `<h2>Where are your project files?</h2><p>Choose the folder you want to deploy. For a built frontend, choose its dist or build folder.</p><form id="localForm"><div class="field"><label for="localPath">Local project folder</label><div class="path-row"><input id="localPath" value="${esc(draft?.localPath || '')}" placeholder="Absolute path to a project folder" ${draft?.projectId ? 'readonly' : ''}><button class="secondary" type="button" id="openLocal" ${draft?.projectId ? 'disabled' : ''}>Browse folders</button></div><span class="help">Only hosting settings named DEVSYNC_* are read from this folder’s .env.</span></div><div id="localPicker"></div><div class="actions"><button class="secondary" type="button" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" type="submit">Continue to hosting</button></div></form>`
+  } else if (step === 2) {
+    const transport = draft.values.DEVSYNC_TRANSPORT
+    const loaded = Object.entries(draft.sources).filter(([, value]) => value === '.env' || value === '.devsync.env').length
+    content = `<h2>Connect your hosting account</h2><p>${loaded ? `Loaded ${loaded} hosting settings from this folder’s environment files. Fill in anything missing.` : 'Enter the connection details from your hosting provider.'} Imported passwords stay on this computer and are not sent to the browser.</p><form id="hostingForm" autocomplete="off"><div class="form-grid"><div class="field"><label for="DEVSYNC_TRANSPORT">Protocol${source('DEVSYNC_TRANSPORT')}</label><select id="DEVSYNC_TRANSPORT" name="DEVSYNC_TRANSPORT"><option value="">Choose a protocol</option>${['ftps', 'sftp', 'ftp'].map((value) => `<option value="${value}" ${transport === value ? 'selected' : ''}>${value === 'ftps' ? 'FTPS — encrypted FTP' : value === 'sftp' ? 'SFTP — SSH file transfer' : 'FTP — unencrypted'}</option>`).join('')}</select></div>${input('DEVSYNC_HOST', 'Host')}${input('DEVSYNC_PORT', 'Port', { type: 'number', optional: true })}${input('DEVSYNC_USERNAME', 'Username')}${input('DEVSYNC_PASSWORD', 'Password / key passphrase', { secret: true })}</div><details><summary>SSH key and advanced settings</summary><div class="form-grid">${input('DEVSYNC_PRIVATE_KEY', 'SSH private key path', { secret: true, optional: true })}<div class="field"><label for="DEVSYNC_DRY_RUN">Default operation</label><select id="DEVSYNC_DRY_RUN" name="DEVSYNC_DRY_RUN"><option value="false" ${String(draft.values.DEVSYNC_DRY_RUN) === 'false' ? 'selected' : ''}>Allow uploads when requested</option><option value="true" ${String(draft.values.DEVSYNC_DRY_RUN) === 'true' ? 'selected' : ''}>Preview only</option></select></div>${input('DEVSYNC_DEBOUNCE_MS', 'Watch delay (milliseconds)', { type: 'number', optional: true })}</div><p class="help">An SSH key is optional and applies to SFTP only. With a key, the password field is an optional passphrase. Local deletions are never mirrored.</p></details><div class="actions"><button class="secondary" type="button" id="backSetup">Back</button><button class="secondary" type="button" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" type="submit">Test connection & continue</button></div></form>`
+  } else if (step === 3) {
+    const selected = draft.values.DEVSYNC_REMOTE_PATH
+    content = `<h2>Choose the folder on your server</h2><p>Open a folder, then select “Use server folder”. Your local files will be placed inside this destination.</p><div class="notice success">Connection verified with ${esc(draft.values.DEVSYNC_HOST)}.</div><div class="selection"><small>Selected destination ${source('DEVSYNC_REMOTE_PATH')}</small><strong id="selectedRemote">${esc(selected || 'Choose a server folder below')}</strong></div><div id="remotePicker"></div><div class="actions"><button class="secondary" type="button" id="backSetup">Back</button><button class="secondary" type="button" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" id="reviewSetup" ${selected && state.verifiedPath === selected ? '' : 'disabled'}>Continue to review</button></div>`
+  } else {
+    const values = draft.values
+    content = `<h2>Ready to save your project</h2><p>Check the source and destination. Saving will not upload or delete server files.</p><div class="field"><label for="projectName">Project name</label><input id="projectName" value="${esc(draft.label)}" maxlength="80"></div><dl class="review"><dt>Local folder</dt><dd>${esc(draft.localPath)}</dd><dt>Hosting</dt><dd>${esc(values.DEVSYNC_HOST)}:${esc(values.DEVSYNC_PORT)} · ${esc(values.DEVSYNC_TRANSPORT?.toUpperCase())}</dd><dt>Username</dt><dd>${esc(values.DEVSYNC_USERNAME)}</dd><dt>Credentials</dt><dd>${draft.secrets.DEVSYNC_PASSWORD ? 'Password supplied' : 'SSH key supplied'} · stored encrypted</dd><dt>Server folder</dt><dd>${esc(values.DEVSYNC_REMOTE_PATH)}</dd></dl>${state.fileOverrides ? '<div class="notice warning">You changed settings loaded from an environment file. The file stays unchanged and will take priority on future runs. Update that file to keep those changes.</div>' : ''}<p class="snapshot-note">The CLI and dashboard will share this saved project. Your application’s .env is never rewritten or uploaded.</p><div class="actions"><button class="secondary" id="backSetup">Back</button><button class="secondary" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" id="saveSetup">Save project</button></div>`
   }
-  const type = isSecret ? 'password' : (s.type === 'int' ? 'number' : 'text')
-  return `<input type="${type}" name="${s.key}" value="${escapeAttr(value)}" placeholder="${s.default !== undefined ? 'default: ' + s.default : ''}">`
-}
-
-// ---------- save ----------
-
-async function onSave(e) {
-  e.preventDefault()
-  const entries = []
-  for (const s of state.schema.keys) {
-    const cur = state.form[s.key]
-    const el = document.querySelector(`[name="${s.key}"]`)
-    if (!el) continue
-    let v = el.value
-    if (cur.present && (s.secret || cur.isSecret) && v === '') v = '***' // mark "keep current"
-    entries.push({ key: s.key, value: v, isSecret: s.secret || cur.isSecret })
-  }
-  try {
-    await api('PUT', `/api/projects/${state.current.id}/env`, { entries })
-    status('Saved.', 'ok')
-    await selectProject(state.current.id)
-  } catch (e) {
-    status('Save failed: ' + e.message, 'err')
-  }
-}
-
-// ---------- test ----------
-
-async function onTest() {
-  status('Connecting…', 'info')
-  try {
-    const r = await api('POST', '/api/test', { projectId: state.current.id })
-    status(`Connected via ${r.transport} to ${r.host}.`, 'ok')
-  } catch (e) {
-    status('Connection failed: ' + e.message, 'err')
-  }
-}
-
-// ---------- browse ----------
-
-async function onBrowseToggle() {
-  const el = $('#browse')
-  if (el.style.display === 'block') { el.style.display = 'none'; return }
-  el.style.display = 'block'
-  await loadBrowse('/')
-}
-
-async function loadBrowse(path) {
-  const browse = $('#browse')
-  browse.innerHTML = '<div class="empty">Loading…</div>'
-  try {
-    const r = await api('GET', `/api/browse?projectId=${state.current.id}&path=${encodeURIComponent(path)}`)
-    state.browse = r
-    browse.innerHTML = `
-      <h3 style="margin:12px 0 6px; font-size:12px; color:#93c5fd">Browse: ${escapeHtml(r.path)}</h3>
-      <div class="browse-list">
-        ${r.path !== '/' ? '<div class="browse-up" data-path="..">↑ ..</div>' : ''}
-        ${r.entries.map((e) => `
-          <div class="browse-item" data-path="${escapeAttr(e.path)}" data-type="${e.type}">
-            <span class="icon">${e.type === 'dir' ? '📁' : '📄'}</span>
-            ${escapeHtml(e.name)}
-          </div>
-        `).join('') || '<div style="color:#6b7280; padding:8px">Empty directory.</div>'}
-      </div>
-      <div class="actions" style="margin-top:8px">
-        <button class="secondary" type="button" id="useThisBtn">Use this folder</button>
-      </div>
-    `
-    $$('.browse-up, .browse-item').forEach((el) => {
-      el.onclick = () => {
-        const t = el.dataset.type
-        if (t === 'file') return // can't cd into a file
-        loadBrowse(el.dataset.path === '..' ? parentPath(r.path) : el.dataset.path)
+  $('#pane').innerHTML = `<p class="eyebrow">${draft?.projectId ? 'PROJECT SETTINGS' : 'ADD A PROJECT'}</p><h1>A home for your next deployment.</h1><ol class="steps">${steps.map((name, i) => `<li class="${step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}" ${step === i + 1 ? 'aria-current="step"' : ''}><span class="step-number">0${i + 1}</span>${name}</li>`).join('')}</ol><div id="message" class="notice"></div><section class="setup-card">${content}</section>`
+  $('#cancelSetup').onclick = () => act(async () => { const current = state.current; await discardDraft(); if (current) await openProject(current.id); else welcome() })
+  if ($('#backSetup')) $('#backSetup').onclick = () => act(async () => { if (step === 2) await pushHosting(); state.step--; renderWizard() })
+  if (step === 1) {
+    $('#openLocal').onclick = () => act(() => loadLocal($('#localPath').value || undefined))
+    $('#localForm').onsubmit = (event) => { event.preventDefault(); act(async () => {
+      const localPath = $('#localPath').value.trim()
+      if (!localPath) throw new Error('Choose a local project folder first')
+      if (!draft || localPath !== draft.localPath) {
+        const loaded = await api('POST', '/api/onboarding', { localPath })
+        if (draft) try { await api('DELETE', `/api/onboarding/${draft.id}`) } catch {}
+        state.draft = loaded
+        state.fileOverrides = false
+        state.remote = null
+        state.verifiedPath = null
       }
+      state.step = 2
+      renderWizard()
+    }, 'Reading hosting settings from the selected folder…') }
+    if (state.local) renderLocal()
+  }
+  if (step === 2) {
+    $$('[name],[data-clear]').forEach((element) => element.addEventListener('input', () => { element.dataset.dirty = 'true' }))
+    $('#DEVSYNC_TRANSPORT').addEventListener('change', () => {
+      if (!$('#DEVSYNC_PORT').value) $('#DEVSYNC_PORT').placeholder = `Automatic (${$('#DEVSYNC_TRANSPORT').value === 'sftp' ? 22 : 21})`
     })
-    $('#useThisBtn').onclick = () => {
-      const el = document.querySelector(`[name="DEVSYNC_REMOTE_PATH"]`)
-      if (el) el.value = r.path
-      browse.style.display = 'none'
-      status('Remote path set. Save to apply.', 'ok')
-    }
-  } catch (e) {
-    browse.innerHTML = `<div class="status err">${escapeHtml(e.message)}</div>`
+    $('#hostingForm').onsubmit = (event) => { event.preventDefault(); act(async () => {
+      await pushHosting()
+      state.draft = await api('POST', `/api/onboarding/${state.draft.id}/test`, {})
+      state.step = 3
+      state.remote = null
+      state.verifiedPath = null
+      renderWizard()
+      await loadRemote(state.draft.values.DEVSYNC_REMOTE_PATH || '/')
+    }, 'Testing your hosting connection…') }
+  }
+  if (step === 3) {
+    if (state.remote) renderRemote()
+    else renderRemoteAddress()
+    $('#reviewSetup').onclick = () => { state.step = 4; renderWizard() }
+  }
+  if (step === 4) $('#saveSetup').onclick = () => act(async () => {
+    const label = $('#projectName').value.trim()
+    const saved = await api('POST', `/api/onboarding/${state.draft.id}/save`, { label })
+    const overridden = state.fileOverrides
+    await discardDraft()
+    await refreshProjects()
+    await openProject(saved.id)
+    message(overridden ? 'Project saved. Its environment file still takes priority over the settings snapshot.' : 'Project saved. Your source and server destination are ready.', overridden ? 'warning' : 'success')
+  }, 'Checking the destination and saving your project…')
+  setBusy(state.busy)
+  if (changedStep) {
+    const heading = $('#pane h1')
+    heading.tabIndex = -1
+    heading.focus({ preventScroll: true })
+    window.scrollTo(0, 0)
   }
 }
 
-function parentPath(p) {
-  const norm = p.replace(/\\/g, '/')
-  const parts = norm.split('/').filter(Boolean)
-  if (parts.length <= 1) return '/'
-  return '/' + parts.slice(0, -1).join('/')
+async function pushHosting() {
+  const entries = []
+  $$('[name][data-dirty="true"]').forEach((element) => {
+    if (element.type === 'password' && !element.value) return
+    entries.push({ key: element.name, value: element.value })
+  })
+  $$('[data-clear]:checked').forEach((element) => entries.push({ key: element.dataset.clear, value: null }))
+  if (!entries.length) return
+  noteFileOverrides(entries)
+  state.draft = await api('PUT', `/api/onboarding/${state.draft.id}`, { entries })
 }
 
-// ---------- delete ----------
+function noteFileOverrides(entries) {
+  if (entries.some((entry) => ['.env', '.devsync.env'].includes(state.draft.sources[entry.key]))) state.fileOverrides = true
+}
 
-async function onDelete() {
-  if (!confirm(`Delete project "${state.current.label}"?`)) return
-  try {
-    await api('DELETE', `/api/projects/${state.current.id}`)
+async function loadLocal(path) {
+  state.local = await api('GET', '/api/local' + (path ? `?path=${encodeURIComponent(path)}` : ''))
+  renderLocal()
+}
+function renderLocal() {
+  const current = state.local
+  $('#localPicker').innerHTML = `<div class="picker"><label class="help" for="localAddress">Browse local folders</label><div class="path-row"><input id="localAddress" value="${esc(current.path)}" aria-label="Local browser path"><button class="secondary" type="button" id="goLocal">Open local path</button></div><div class="picker-toolbar"><button class="secondary" type="button" data-local="${esc(current.home)}">Home</button>${current.parent ? `<button class="secondary" type="button" data-local="${esc(current.parent)}">Up one local folder</button>` : ''}${current.roots.map((root) => `<button class="secondary" type="button" data-local="${esc(root)}">${esc(root)}</button>`).join('')}</div><div class="folder-list">${current.entries.map((entry) => `<button class="folder" type="button" data-local="${esc(entry.path)}">${esc(entry.name)}</button>`).join('') || '<div class="empty">No subfolders here.</div>'}</div><button class="primary" type="button" id="useLocal">Use local folder</button></div>`
+  $$('[data-local]').forEach((button) => { button.onclick = () => act(() => loadLocal(button.dataset.local)) })
+  $('#goLocal').onclick = () => act(() => loadLocal($('#localAddress').value.trim()))
+  $('#localAddress').onkeydown = (event) => { if (event.key === 'Enter') { event.preventDefault(); $('#goLocal').click() } }
+  $('#useLocal').onclick = () => { $('#localPath').value = current.path; $('#localPicker').innerHTML = '' }
+  setBusy(state.busy)
+}
+
+function renderRemoteAddress() {
+  $('#remotePicker').innerHTML = '<div class="picker"><label class="help" for="remoteAddress">Open an existing server folder</label><div class="path-row"><input id="remoteAddress" value="/" aria-label="Server browser path"><button class="secondary" id="goRemote">Open server path</button></div><div id="remoteContents"></div></div>'
+  $('#goRemote').onclick = () => act(() => loadRemote($('#remoteAddress').value.trim()))
+  $('#remoteAddress').onkeydown = (event) => { if (event.key === 'Enter') { event.preventDefault(); $('#goRemote').click() } }
+}
+async function loadRemote(path) {
+  state.remote = await api('POST', `/api/onboarding/${state.draft.id}/browse`, { path })
+  if (state.remote.path === state.draft.values.DEVSYNC_REMOTE_PATH) state.verifiedPath = state.remote.path
+  renderWizard()
+}
+function renderRemote() {
+  const current = state.remote
+  renderRemoteAddress()
+  $('#remoteAddress').value = current.path
+  $('#remoteContents').innerHTML = `<div class="picker-toolbar"><button class="secondary" data-remote="/">Account root</button>${current.parent ? `<button class="secondary" data-remote="${esc(current.parent)}">Up one server folder</button>` : ''}</div><div class="folder-list">${current.entries.map((entry) => `<button class="folder" data-remote="${esc(entry.path)}">${esc(entry.name)}</button>`).join('') || '<div class="empty">No subfolders here. You can still use this folder.</div>'}</div><button class="primary" id="useRemote">Use server folder</button>`
+  $$('[data-remote]').forEach((button) => { button.onclick = () => act(() => loadRemote(button.dataset.remote)) })
+  $('#useRemote').onclick = () => act(async () => {
+    const entries = [{ key: 'DEVSYNC_REMOTE_PATH', value: current.path }]
+    noteFileOverrides(entries)
+    state.draft = await api('PUT', `/api/onboarding/${state.draft.id}`, { entries })
+    state.verifiedPath = current.path
+    renderWizard()
+    message(`Destination selected: ${current.path}`, 'success')
+  })
+  setBusy(state.busy)
+}
+
+async function openProject(id) {
+  const data = await api('GET', `/api/projects/${id}/env`)
+  state.current = { id, ...data }
+  state.step = 0
+  const config = data.configuration
+  const values = config.values
+  $('#pane').innerHTML = `<p class="eyebrow">SAVED PROJECT</p><div class="summary-head"><div><h1>${esc(data.label)}</h1><p class="sub">${esc(data.localPath)}</p></div><span class="ready">● ${Object.keys(config.errors).length ? 'Setup needed' : 'Project configured'}</span></div><div id="message" class="notice"></div><section class="summary-card"><h2>Source → destination</h2><dl class="review"><dt>Local source</dt><dd>${esc(data.localPath)}</dd><dt>Server folder</dt><dd>${esc(values.DEVSYNC_REMOTE_PATH || 'Not configured')}</dd><dt>Connection</dt><dd>${esc(values.DEVSYNC_TRANSPORT?.toUpperCase())} · ${esc(values.DEVSYNC_HOST || 'Not configured')}:${esc(values.DEVSYNC_PORT)}</dd><dt>Username</dt><dd>${esc(values.DEVSYNC_USERNAME || 'Not configured')}</dd><dt>Credentials</dt><dd>${config.secrets.DEVSYNC_PASSWORD || config.secrets.DEVSYNC_PRIVATE_KEY ? 'Supplied · never shown in this browser' : 'Not configured'}</dd></dl><div class="actions"><button class="primary" id="editProject">Edit setup</button><button class="secondary" id="testProject">Test connection</button><span class="spacer"></span><button class="danger" id="deleteProject">Remove project</button></div></section>`
+  if (Object.keys(config.errors).length) message(Object.values(config.errors).join('; '), 'warning')
+  $('#editProject').onclick = () => act(async () => { state.draft = await api('POST', '/api/onboarding', { projectId: id }); state.fileOverrides = false; state.step = 2; renderWizard() })
+  $('#testProject').onclick = () => act(async () => { await api('POST', '/api/test', { projectId: id }); message('Connection test passed.', 'success') }, 'Testing your hosting connection…')
+  $('#deleteProject').onclick = () => act(async () => {
+    if (!confirm(`Remove "${data.label}" from devsync? Local and server files stay in place.`)) return
+    await api('DELETE', `/api/projects/${id}`)
     state.current = null
     await refreshProjects()
-    renderPane()
-  } catch (e) {
-    status('Delete failed: ' + e.message, 'err')
-  }
-}
-
-// ---------- helpers ----------
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-}
-function escapeAttr(s) { return escapeHtml(s) }
-
-// ---------- add project ----------
-
-$('#addProject').onclick = async () => {
-  const label = prompt('Project label (short, no spaces):')
-  if (!label) return
-  const localPath = prompt('Local path (absolute):')
-  if (!localPath) return
-  try {
-    const r = await api('POST', '/api/projects', { label, localPath })
-    await refreshProjects()
-    selectProject(r.id)
-  } catch (e) {
-    alert('Could not add: ' + e.message)
-  }
-}
-
-// ---------- boot ----------
-
-;(async function boot() {
-  try {
-    await api('GET', '/api/health')
-    $('#serverStatus').textContent = 'loopback'
-    $('#serverStatus').style.color = '#86efac'
-  } catch (e) {
-    $('#serverStatus').textContent = 'server unreachable'
-    $('#serverStatus').style.color = '#fca5a5'
-  }
-  const s = await api('GET', '/api/schema')
-  state.schema = s
+    welcome()
+  })
   await refreshProjects()
-  if (state.projects.length === 1) selectProject(state.projects[0].id)
-  else renderPane()
+  window.scrollTo(0, 0)
+  setBusy(state.busy)
+}
+
+$('#addProject').onclick = () => act(startNew)
+;(async () => {
+  try {
+    await refreshProjects()
+    $('#serverStatus').textContent = '● Running locally'
+    if (state.projects.length === 1) await openProject(state.projects[0].id)
+    else welcome()
+  } catch (error) {
+    $('#pane').innerHTML = '<h1>Could not load your projects</h1><div id="message" class="notice"></div>'
+    message(error.message, 'error')
+    $('#serverStatus').textContent = 'Connection unavailable'
+  }
 })()

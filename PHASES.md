@@ -45,12 +45,33 @@ Validation includes prompt/browsing tests, configuration precedence, atomic save
 settings, and real FTP CLI onboarding, previews, deploy/sync behavior, failed
 authentication, saved credentials, and operation from another directory.
 
-## Phase 3: UI onboarding — next
+## Phase 3: UI onboarding — implemented 21 October 2026
 
-Launch anywhere, select a local folder, load its settings, fill missing hosting
-details, and browse/select the server destination.
+- The dashboard guides users through local folder, hosting, destination, and
+  review steps. Local browsing supports home, drives/roots, parent navigation,
+  and manual absolute paths, independent of the launch directory.
+- Selecting a source folder loads its `.env` and legacy `.devsync.env`; the UI
+  ignores the launch environment's `DEVSYNC_ENV_FILE`. Missing settings are entered
+  manually, and supplied secrets are represented only by presence flags.
+- New projects remain temporary drafts until a successful connection test, valid
+  existing destination, and final review/save. Cancellation, failed login, missing
+  destinations, duplicate names, and invalid settings leave no new registration.
+- The server folder picker uses unsaved hosting details. Changes to connection
+  details invalidate the test. Save rechecks the destination without uploading
+  or deleting remote files, then stores the shared encrypted configuration.
+- Saved projects can be viewed, edited, connection-tested, removed locally, and
+  used immediately through CLI commands. Configuration sources and file precedence
+  are visible; application `.env` files remain untouched.
+- The loopback service checks request hosts/origins and requires a session token
+  for local browsing and draft APIs. Static assets are explicitly whitelisted.
 
-## Phase 4: UI deployment — planned
+Validation covers HTTP onboarding against a real local FTP server, directory
+navigation, secret redaction, manual settings, cancellation, invalid/authentication
+failures, CLI compatibility, draft expiry, and origin/host checks. The actual
+browser flow was exercised for imported credentials, folder selection, review,
+save, editing, manual entry, and cancellation.
+
+## Phase 4: UI deployment — next
 
 Preview, deploy, sync, start/stop watching, progress, and actionable errors using
 the same deployment operations as the CLI.

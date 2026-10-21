@@ -10,7 +10,7 @@ import { validateRemotePath } from '../paths.js'
 const recognized = new Set(ENV_SCHEMA.map((s) => s.key))
 const present = (value) => value !== undefined && value !== null && value !== ''
 
-export function resolveEnv(projectId, { transport = 'sftp', envFile, localPath, overrides = {} } = {}) {
+export function resolveEnv(projectId, { transport = 'sftp', envFile, localPath, overrides = {}, useEnvFileEnvironment = true } = {}) {
   const project = projectId == null ? null : getProject(projectId)
   localPath = project?.localPath || localPath
   if (!localPath) throw new Error('A local project folder is required')
@@ -25,7 +25,7 @@ export function resolveEnv(projectId, { transport = 'sftp', envFile, localPath, 
       }
     }
   }
-  const explicitFile = envFile || process.env.DEVSYNC_ENV_FILE
+  const explicitFile = envFile || (useEnvFileEnvironment ? process.env.DEVSYNC_ENV_FILE : undefined)
   if (explicitFile && typeof explicitFile !== 'string') throw new Error('--env-file requires a file path')
   const layers = explicitFile
     ? [{ file: path.resolve(explicitFile), source: envFile ? '--env-file' : 'DEVSYNC_ENV_FILE', required: true }]

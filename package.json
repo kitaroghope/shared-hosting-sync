@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node test/ignore.test.js && node --test --test-concurrency=1 test/uploader.test.js test/transport-ftp.test.js test/cli-deployment.test.js test/cli-onboarding.test.js test/onboarding.test.js test/transport-sftp.test.js test/watcher.test.js test/envResolver.test.js test/db.test.js test/secrets.test.js",
+    "test": "node test/ignore.test.js && node --test --test-concurrency=1 test/uploader.test.js test/transport-ftp.test.js test/cli-deployment.test.js test/cli-onboarding.test.js test/onboarding.test.js test/ui-onboarding.test.js test/transport-sftp.test.js test/watcher.test.js test/envResolver.test.js test/db.test.js test/secrets.test.js",
     "prepack": "npm test",
     "prepublishOnly": "npm test && node -e \"console.log('publishing ' + require('./package.json').name + '@' + require('./package.json').version)\""
   },
