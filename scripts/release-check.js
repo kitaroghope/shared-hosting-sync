@@ -22,13 +22,21 @@ const options = { cwd: temp, env, maxBuffer: 16 * 1024 * 1024 }
 let ftp, ui
 
 async function run(file, args, extra = {}) {
-  try { return await exec(file, args, { ...options, ...extra }) }
+  try {
+    const { stream = false, ...settings } = extra
+    const task = exec(file, args, { ...options, ...settings })
+    if (stream) {
+      task.child.stdout.on('data', (data) => process.stdout.write(data))
+      task.child.stderr.on('data', (data) => process.stderr.write(data))
+    }
+    return await task
+  }
   catch (error) { console.error(error.stdout || '', error.stderr || ''); throw error }
 }
 
 try {
   console.log('Packing the release; prepack runs the complete test suite…')
-  const packed = await run(process.execPath, [npmCli, 'pack', '--json', '--pack-destination', artifacts], { cwd: repo })
+  const packed = await run(process.execPath, [npmCli, 'pack', '--json', '--pack-destination', artifacts], { cwd: repo, stream: true })
   const jsonStart = packed.stdout.lastIndexOf('\n[') + 1
   const [manifest] = JSON.parse(packed.stdout.slice(jsonStart))
   assert.equal(manifest.name, pkg.name)
