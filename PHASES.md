@@ -118,7 +118,7 @@ conflicts, crashed owners, and dashboard/CLI coordination. Locks are local to on
 machine/settings store and do not detect remote aliases or other deployment tools.
 Production-host checks and cross-platform installation remain release work.
 
-## Phase 6: npm release — candidate prepared; publication pending
+## Phase 6: npm release — 0.1.0
 
 - Package and primary command renamed to `shared-hosting-sync`; `devsync` remains
   an alias, with compatible settings and environment variables.
@@ -133,9 +133,9 @@ Production-host checks and cross-platform installation remain release work.
   real FTP deployment/sync, dashboard startup, assets, and version metadata.
 - A Node.js 24 workflow runs release checks on Windows, Linux, and macOS. Generated
   tarballs, manifests, and SHA-256 checksums are saved as CI artifacts.
-- npm publication still requires maintainer authentication, all platform checks,
-  and registry acceptance. See RELEASING.md; do not mark this phase published until
-  registry installation is verified.
+- Publication requires maintainer authentication, all platform checks, and
+  registry acceptance. Registry installation confirms publication; see RELEASING.md
+  for the verification steps.
 
 After release: GitHub Actions integration, deployment history, rollback, and
 optional remote deletion.

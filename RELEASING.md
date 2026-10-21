@@ -1,6 +1,6 @@
 # Release shared-hosting-sync
 
-The GitHub repository remains `kitaroghope/devsync`. The npm package and primary
+The GitHub repository is `kitaroghope/shared-hosting-sync`. The npm package and primary
 command are `shared-hosting-sync`; `devsync` is an equivalent command alias.
 Keep existing `DEVSYNC_*` variables and the settings directory compatible.
 Machines with the old global `devsync` development package should first run
@@ -58,7 +58,7 @@ publish the exact checked archive:
 npm publish ./artifacts/shared-hosting-sync-0.1.0.tgz --access public
 ```
 
-The npm package is public even while the GitHub repository is private. Publishing
+Publishing with `--access public` makes the package contents publicly available. Publishing
 an existing tarball does not rebuild it or rerun the source lifecycle scripts;
 the release check must have passed for this archive beforehand. Never replace a
 published version; fix issues in a new version.

@@ -6,9 +6,8 @@ choose a local folder and a server destination, then deploy or keep files in syn
 Use the terminal or a local browser dashboard. Both interfaces control the same
 projects, settings, and deployment operations.
 
-> **Release candidate:** Version 0.1.0 is being prepared for npm publication.
+> **Version 0.1.0:** Requires Node.js 24 or newer.
 > CLI and UI onboarding, previews, deployment, sync, and watching are implemented.
-> Registry installation becomes available after publication.
 
 The package name is **shared-hosting-sync**. Run it as `shared-hosting-sync` or
 use the shorter `devsync` alias shown in examples below. Both commands run the
@@ -37,7 +36,7 @@ runtime supported by the hosting provider.
 Requires **Node.js 24 or newer** and npm. Hosting credentials and access to the
 destination folder are also required.
 
-After npm publication:
+Install globally:
 
 ```sh
 npm install -g shared-hosting-sync
@@ -45,7 +44,7 @@ shared-hosting-sync --version
 shared-hosting-sync ui
 ```
 
-To install a release tarball before publication:
+Alternatively, install a locally built release tarball:
 
 ```sh
 npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
@@ -72,7 +71,7 @@ npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
 ```
 
 This replaces the old global installation. Saved projects and credentials remain
-in `~/.devsync/` (or your configured `DEVSYNC_HOME`). After npm publication, use
+in `~/.devsync/` (or your configured `DEVSYNC_HOME`). For registry installation, use
 `npm install -g shared-hosting-sync` in place of the tarball command.
 
 ## Start from a project folder
@@ -374,7 +373,7 @@ The package is in development. Before relying on it for deployments:
   and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
 - Phase 6 prepares `shared-hosting-sync@0.1.0`, including production-only packaging,
   global installation checks, and Windows/Linux/macOS release checks in CI.
-  Publication requires npm account authentication and final registry acceptance.
+  See [RELEASING.md](RELEASING.md) for maintainer publication instructions.
 
 See [PRODUCT.md](PRODUCT.md) for product requirements and [ROADMAP.md](ROADMAP.md)
 for historical design notes. PHASES.md tracks the current release sequence.
