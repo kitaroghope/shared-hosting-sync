@@ -18,13 +18,14 @@ import { fileURLToPath } from 'node:url'
 
 const FIXTURE_DIR = path.dirname(fileURLToPath(import.meta.url))
 
-export async function startFtpFixture({ username = 'tester', password = 'pw', rootDir = null } = {}) {
+export async function startFtpFixture({ username = 'tester', password = 'pw', rootDir = null, tls } = {}) {
   const root = rootDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-ftp-'))
   if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true })
 
   const server = new FtpSrv({
     url: 'ftp://127.0.0.1',
     anonymous: false,
+    tls,
     pasv_url: '127.0.0.1',
     pasv_min: 40000,
     pasv_max: 40100,
@@ -33,8 +34,12 @@ export async function startFtpFixture({ username = 'tester', password = 'pw', ro
     root: () => root
   })
 
-  server.on('login', ({ username: u, password: p }, resolve, reject) => {
+  server.on('login', ({ username: u, password: p, connection }, resolve, reject) => {
     if (u === username && p === password) {
+      // ftp-srv treats a numeric zero SIZE message as absent. Real FTP servers
+      // return "213 0"; keep empty-file coverage faithful to the protocol.
+      const reply = connection.reply.bind(connection)
+      connection.reply = (code, message, ...args) => reply(code, message?.message === 0 ? { ...message, message: '0' } : message, ...args)
       return resolve({ root })
     }
     return reject(new Error('bad credentials'))

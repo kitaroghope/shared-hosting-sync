@@ -33,6 +33,7 @@ import {
 import { resolveEnv, credsFromResolved, settingError } from './core/envResolver.js'
 import { ENV_SCHEMA } from './core/envSchema.js'
 import { resolveDeployment } from './core/deployment.js'
+import { acquireOperation, assertProjectIdle, mutateProject } from './core/operationLock.js'
 import { startServer } from './server/index.js'
 import { HOME } from './config.js'
 import { validateRemotePath } from './paths.js'
@@ -76,6 +77,7 @@ function die(msg, code = 1) {
 function ok(msg) { console.log(C.g('✓ ') + msg) }
 function info(msg) { console.log(C.c('· ') + msg) }
 function warn(msg) { console.log(C.y('! ') + msg) }
+function retryNotice({ attempt, retries }) { warn(`Connection interrupted; reconnecting (${attempt}/${retries})`) }
 
 function openAndMigrate() {
   const db = openDb()
@@ -88,6 +90,7 @@ function openAndMigrate() {
 }
 
 async function setupProject(project) {
+  if (project) assertProjectIdle(project.id)
   const localPath = assertLocalFolder(project?.localPath || process.cwd())
   const resolved = resolveEnv(project?.id, { localPath, envFile: flags['env-file'], overrides: flagOverrides() })
   const prepared = await prepareConfiguration(resolved, {
@@ -105,7 +108,7 @@ async function setupProject(project) {
     project = createProject({ label, localPath })
   }
   try {
-    saveConfiguration(project.id, prepared.values, { sources: prepared.sources })
+    mutateProject(project.id, () => saveConfiguration(project.id, prepared.values, { sources: prepared.sources }))
     ensureDeployignore(localPath)
   } catch (err) {
     if (created) deleteProject(project.id)
@@ -194,7 +197,8 @@ const COMMANDS = {
     if (!label) die('usage: devsync remove <label>')
     const p = getProjectByLabel(label)
     if (!p) die(`no such project: ${label}`)
-    deleteProject(p.id)
+    assertProjectIdle(p.id)
+    mutateProject(p.id, () => deleteProject(p.id))
     ok(`removed "${label}"`)
   },
 
@@ -263,14 +267,16 @@ const COMMANDS = {
     const proj = project || await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
-    const t = await createTransport(creds, flags.transport).catch((e) => die(e.message))
+    const release = acquireOperation(proj.id, 'preview', { creds, remotePath: proj.remotePath })
+    let t
     try {
+      t = await createTransport(creds, flags.transport, { onRetry: retryNotice })
       const p = await buildPlan(proj, matcher, t, { force: !!flags.force })
       console.log()
       console.log(C.b(`Plan for "${proj.label}"`) + C.dim(`  ${proj.localPath} → ${proj.remotePath}`))
       console.log(
         C.dim(
-          `  ${p.totalFiles} file(s) considered · ${p.uploads.length} to upload · ${p.skipped.length} unchanged · ${mb(p.comparedBytes)} outbound`
+          `  ${p.totalFiles} file(s) considered · ${p.uploads.length} to upload · ${p.skipped.length} unchanged · ${p.excludedCount} excluded entries · ${mb(p.comparedBytes)} outbound`
         )
       )
       const blocked = matcher.blockedSample()
@@ -285,11 +291,16 @@ const COMMANDS = {
         }
         if (p.uploads.length > 40) console.log(C.dim(`  … ${p.uploads.length - 40} more`))
       }
+      if (p.excluded.length) {
+        console.log(C.dim('\n  excluded (directories represent their contents):'))
+        for (const entry of p.excluded.slice(0, 40)) console.log(C.dim(`  - ${entry.rel} (${entry.reason})`))
+        if (p.excludedCount > 40) console.log(C.dim(`  … ${p.excludedCount - 40} more`))
+      }
       console.log()
       console.log(C.dim(`  run:  devsync sync ${proj.label}     (apply)`))
       console.log(C.dim(`  watch: devsync watch ${proj.label}    (continuous)`))
     } finally {
-      await t.close()
+      try { if (t) await t.close() } finally { release() }
     }
   },
 
@@ -299,12 +310,13 @@ const COMMANDS = {
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
     let t
+    const release = acquireOperation(proj.id, force ? 'deploy' : 'sync', { creds, remotePath: proj.remotePath })
     setStatus(proj.id, 'syncing')
 
     const dryRun = creds.dryRun || !!flags['dry-run'] || !!flags.plan
 
     try {
-      t = await createTransport(creds)
+      t = await createTransport(creds, undefined, { onRetry: retryNotice })
       const p = await buildPlan(proj, matcher, t, { force })
       console.log()
       console.log(C.b(`${cmd === 'deploy' ? 'Deploy' : 'Sync'} "${proj.label}"`) + C.dim(`  ${p.uploads.length} file(s) · ${mb(p.comparedBytes)}`))
@@ -345,7 +357,7 @@ const COMMANDS = {
       setStatus(proj.id, 'error', { error: e.message })
       throw e
     } finally {
-      if (t) await t.close()
+      try { if (t) await t.close() } finally { release() }
     }
   },
 
@@ -355,7 +367,10 @@ const COMMANDS = {
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
     ensureDeployignore(proj.localPath)
-    const t = await createTransport(creds, flags.transport).catch((e) => die(e.message))
+    const release = acquireOperation(proj.id, 'watch', { creds, remotePath: proj.remotePath })
+    let t
+    try { t = await createTransport(creds, flags.transport, { onRetry: retryNotice }) }
+    catch (error) { release(); throw error }
     setStatus(proj.id, 'watching')
 
     console.log()
@@ -372,6 +387,7 @@ const COMMANDS = {
           console.log(C.r('  ✗ ') + e.message)
         }
         else if (e.type === 'change') console.log(C.dim(`  ~ ${e.kind} ${e.file}`))
+        else if (e.type === 'retry') warn(e.message)
       },
       onSettle: (s) => {
         setStatus(proj.id, s.failed.length ? 'error' : 'watching', {
@@ -384,13 +400,18 @@ const COMMANDS = {
         for (const f of s.failed) console.log(C.r(`  ✗ ${f.rel} — ${f.error}`))
       }
     })
-    w.start()
+    try { w.start() } catch (error) { try { await t.close() } finally { release() }; throw error }
 
+    let stopping = false
     const shutdown = async () => {
+      if (stopping) return
+      stopping = true
       console.log(C.dim('\nstopping…'))
-      await w.stop()
-      await t.close()
-      setStatus(proj.id, 'idle')
+      try {
+        await w.stop()
+        await t.close()
+        setStatus(proj.id, 'idle')
+      } finally { release() }
       process.exit(0)
     }
     process.on('SIGINT', shutdown)

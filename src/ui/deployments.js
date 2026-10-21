@@ -81,7 +81,7 @@ export class DeploymentPanel {
 
   render(activity) {
     if (!this.projectId || activity.projectId !== this.projectId) return
-    const busy = activity.active
+    const busy = activity.active || !!activity.externalOperation
     for (const id of ['previewUploads', 'deployFiles', 'syncFiles', 'startWatching', 'previewMode']) this.disable(id, busy || !this.configured)
     this.disable('operationDryRun', busy || this.settingsDryRun || !this.configured)
     for (const id of ['editProject', 'testProject', 'deleteProject']) this.disable(id, busy)
@@ -94,6 +94,7 @@ export class DeploymentPanel {
     let text = activity.stopping ? phases.stopping : phases[activity.phase] || phases.idle
     if (activity.state === 'success') text = activity.dryRun ? 'Preview complete. No files were uploaded.' : 'Upload complete.'
     if (activity.state === 'stopped') text = 'Watching stopped. No further saves will be uploaded.'
+    if (activity.externalOperation) text = 'An operation is running in another CLI or dashboard. Stop it there or wait for it to finish.'
     if (activity.lastError) text = `${activity.watching && !activity.stopping ? 'Watching is still active; the last sync failed. ' : ''}${activity.lastError} Check the connection and server folder permissions, then retry.`
     if (!this.configured && !busy) text = 'Complete project setup before previewing or uploading.'
     if (status.textContent !== text) status.textContent = text

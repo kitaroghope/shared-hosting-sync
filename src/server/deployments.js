@@ -4,6 +4,7 @@ import { resolveDeployment } from '../core/deployment.js'
 import { createTransport } from '../transport/index.js'
 import { buildPlan, runPlan } from '../uploader.js'
 import { ProjectWatcher } from '../watcher.js'
+import { acquireOperation, assertProjectIdle, projectOperation } from '../core/operationLock.js'
 
 const fail = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode })
 const stamp = () => new Date().toISOString()
@@ -24,6 +25,7 @@ export class DeploymentService {
 
   ensureEditable(id) {
     if (id && this.isBusy(id)) throw fail('Finish the current operation or stop watching before changing this project', 409)
+    if (id) assertProjectIdle(id)
   }
 
   activity(id) {
@@ -35,7 +37,7 @@ export class DeploymentService {
       result: null, progress: null, lastError: project.lastStatus === 'error' ? project.lastError : null
     }
     return structuredClone({
-      ...view, active: this.isBusy(project.id),
+      ...view, active: this.isBusy(project.id), externalOperation: !this.isBusy(project.id) ? projectOperation(project.id) : null,
       watching: !!(record?.watcher || record?.view.kind === 'watch' && record?.task),
       stopping: !!record?.stopping, lastSyncAt: project.lastSyncAt, lastUploadBytes: project.lastUploadBytes
     })
@@ -111,8 +113,9 @@ export class DeploymentService {
     if (this.isBusy(project.id)) throw fail('This project already has an operation running. Stop watching or wait for it to finish.', 409)
     const context = resolveDeployment(project, { useEnvFileEnvironment: false })
     const dryRun = kind === 'preview' || context.dryRun || !!options.dryRun
+    const release = acquireOperation(project.id, kind, { creds: context.creds, remotePath: context.project.remotePath })
     const record = {
-      context, task: null, watcher: null, transport: null, stopping: null, stopRequested: false,
+      context, release, task: null, watcher: null, transport: null, stopping: null, stopRequested: false,
       view: {
         projectId: project.id, operationId: crypto.randomUUID(), kind,
         mode: kind === 'preview' ? options.mode || 'sync' : kind === 'deploy' ? 'deploy' : 'sync',
@@ -129,12 +132,15 @@ export class DeploymentService {
         record.transport = null
       }
       record.task = null
+      if (!record.watcher) record.release()
     })
     return this.activity(project.id)
   }
 
   async execute(record) {
-    record.transport = await this.connect(record.context.creds)
+    record.transport = await this.connect(record.context.creds, undefined, {
+      onRetry: ({ attempt, retries }) => this.log(record, `Connection interrupted; reconnecting (${attempt}/${retries})`, 'warning')
+    })
     if (record.stopRequested || this.closing) return
     const context = record.context
     if (record.view.kind === 'watch') {
@@ -145,6 +151,7 @@ export class DeploymentService {
         onFileResult: (event) => this.fileResult(record, event),
         onEvent: (event) => {
           if (event.type === 'error') this.error(record, new Error(event.message))
+          else if (event.type === 'retry') this.log(record, event.message, 'warning')
           else if (event.type === 'change') this.log(record, event.kind === 'initial' ? 'Initial sync requested' : `${event.kind}: ${event.file}`)
         },
         onSettle: (result) => this.complete(record, {
@@ -188,7 +195,7 @@ export class DeploymentService {
       record.view.phase = record.view.lastError ? 'error' : 'complete'
       setStatus(record.view.projectId, record.view.lastError ? 'error' : 'idle', { error: record.view.lastError })
       this.log(record, 'Watching stopped', 'success')
-    })().catch((error) => this.error(record, error)).finally(() => { record.stopping = null })
+    })().catch((error) => this.error(record, error)).finally(() => { record.release(); record.stopping = null })
     return this.activity(id)
   }
 

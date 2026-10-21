@@ -21,7 +21,7 @@ export class FtpTransport {
         user: this.creds.username,
         password: this.creds.password,
         secure: this.creds.secure,
-        secureOptions: { rejectUnauthorized: false }
+        secureOptions: this.creds.secureOptions
       })
     } catch (err) {
       c.close()

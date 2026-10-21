@@ -1,6 +1,7 @@
 import chokidar from 'chokidar'
 import path from 'node:path'
 import { buildPlan, runPlan } from './uploader.js'
+import { isTransient } from './transport/reliable.js'
 
 /** Debounced serial cycles shared by the CLI and dashboard. */
 export class ProjectWatcher {
@@ -16,6 +17,8 @@ export class ProjectWatcher {
     this.onProgress = opts.onProgress ?? (() => {})
     this.onFileResult = opts.onFileResult ?? (() => {})
     this.timer = null
+    this.retryTimer = null
+    this.retryDelayMs = opts.retryDelayMs ?? 5000
     this.pending = new Set()
     this.dirty = false
     this.running = false
@@ -76,6 +79,7 @@ export class ProjectWatcher {
   }
 
   async runCycle() {
+    clearTimeout(this.retryTimer)
     try {
       const plan = await buildPlan(this.project, this.matcher, this.transport, { onProgress: this.onProgress })
       this.onPlan(plan)
@@ -91,15 +95,25 @@ export class ProjectWatcher {
         considered: plan.totalFiles, skipped: plan.skipped.length,
         files: result.done.map((file) => file.rel)
       })
+      if (result.failed.some((file) => file.retryable)) this.retry()
     } catch (error) {
       this.onEvent({ type: 'error', message: error.message })
+      if (isTransient(error)) this.retry()
     }
+  }
+
+  retry() {
+    if (this.stopped) return
+    this.onEvent({ type: 'retry', message: 'Connection unavailable; watch will retry automatically.' })
+    clearTimeout(this.retryTimer)
+    this.retryTimer = setTimeout(() => this.queue(this.project.localPath, 'retry'), this.retryDelayMs)
   }
 
   async stop() {
     this.stopped = true
     this.cancelReady()
     clearTimeout(this.timer)
+    clearTimeout(this.retryTimer)
     this.pending.clear()
     this.dirty = false
     if (this.watcher) await this.watcher.close()

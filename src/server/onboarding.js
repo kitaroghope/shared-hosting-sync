@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { mutateProject } from '../core/operationLock.js'
 import path from 'node:path'
 import os from 'node:os'
 import { ENV_SCHEMA, defaultsFor } from '../core/envSchema.js'
@@ -176,8 +177,10 @@ export class OnboardingService {
       const created = !project
       try {
         project ||= createProject({ label, localPath: draft.localPath })
-        saveConfiguration(project.id, draft.values, { sources: draft.sources })
-        if (project.label !== label) updateProject(project.id, { label })
+        mutateProject(project.id, () => {
+          saveConfiguration(project.id, draft.values, { sources: draft.sources })
+          if (project.label !== label) updateProject(project.id, { label })
+        })
       } catch (error) {
         if (created && project) deleteProject(project.id)
         throw error

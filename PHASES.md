@@ -84,19 +84,41 @@ save, editing, manual entry, and cancellation.
   current batch and discards pending work; server shutdown also drains operations.
   Closing or refreshing a browser tab leaves the server-side operation running.
 - Dashboard actions cannot overlap for one project, and active projects cannot
-  be edited or removed there. Cross-process CLI coordination remains Phase 5.
+  be edited or removed there. Phase 5 extends this across CLI/UI processes.
 
 Validation includes real FTP HTTP operations, read-only previews, same-size edits,
 dry-run settings, watch readiness/stop behavior, shutdown, concurrent-action guards,
 progress, and failed uploads. Browser checks cover deploy, unchanged sync, watching
 across refresh, stopping, previews, failure display, and successful retry.
 
-## Phase 5: Reliability and testing — next
+## Phase 5: Reliability and testing — implemented 21 October 2026
 
-Connection recovery, overlapping-upload prevention, exclusion workflows, and
-realistic FTP/FTPS/SFTP end-to-end checks.
+- SQLite operation locks coordinate CLI commands and multiple dashboards sharing
+  the same local settings store. Watches retain ownership until stopped.
+  Overlapping paths for the same protocol/host/port/account are guarded even when
+  registered as different projects. Exited owners are reclaimed without expiring
+  live transfers. Settings changes/removal also acquire project ownership.
+- Transient connection failures receive two bounded reconnect attempts. Read
+  operations can be retried; uploads restart the whole temporary-write/rename
+  sequence, including when a rename acknowledgement is lost. Permanent login,
+  permission, and certificate errors remain visible without repeated attempts.
+- Active watchers schedule another cycle after transient failures without another
+  save. Stop clears retry work and waits for an in-flight cycle. CLI notices and
+  dashboard activity expose reconnect attempts and operation conflicts.
+- CLI previews list custom and hard exclusions, matching the dashboard. Existing
+  secret and dependency exclusions remain enforced in all upload paths.
+- Real local FTPS and SFTP servers cover read-only preview, nested destinations,
+  empty and multi-chunk files, same-size edits, unchanged files, exclusions, and
+  failed uploads. FTPS now verifies certificates; tests explicitly trust a public
+  localhost fixture and prove untrusted certificates are rejected.
 
-## Phase 6: npm release — planned
+Validation also covers dropped real FTP connections, safe replay after lost
+rename responses, bounded retries, watcher recovery/stop, separate-process lock
+conflicts, crashed owners, and dashboard/CLI coordination. Locks are local to one
+machine/settings store and do not detect remote aliases or other deployment tools.
+Production-host checks and cross-platform installation remain release work.
+
+## Phase 6: npm release — next
 
 Finalize metadata, documentation, Node requirements, cross-platform global
 installation checks, and publish the first usable release.

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { validateRemotePath, relativeFile } from './paths.js'
 import { hashFile } from './checksum.js'
+import { isTransient } from './transport/reliable.js'
 
 const TMP_SUFFIX = '.devsync-uploading'
 
@@ -111,6 +112,11 @@ export async function buildPlan(project, matcher, transport, { force = false, on
  * Without this, PHP can parse a half-written file and 500 mid-transfer.
  */
 export async function uploadOne(transport, item) {
+  if (transport.transaction) return transport.transaction((raw) => uploadAttempt(raw, item))
+  return uploadAttempt(transport, item)
+}
+
+async function uploadAttempt(transport, item) {
   for (const dir of item.dirs) {
     await transport.ensureDir(dir)
   }
@@ -145,7 +151,7 @@ export async function runPlan(plan, transport, { dryRun = false, onProgress, onF
       bytes += item.bytes
       if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: true, dryRun: false, bytes })
     } catch (err) {
-      failed.push({ rel: item.rel, error: err.message })
+      failed.push({ rel: item.rel, error: err.message, retryable: isTransient(err) })
       if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: false, error: err.message, dryRun: false, bytes })
     }
   }

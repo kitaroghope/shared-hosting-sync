@@ -25,8 +25,9 @@ setup, destination browsing, preview, deploy, sync, and watch. The UI now suppor
 complete folder selection, `.env` discovery, hosting details, connection testing,
 server browsing, review, and project saving, plus upload previews, deployment,
 changed-file sync, watch start/stop, progress, and file errors. Both interfaces
-support the core workflow. Connection recovery, cross-process coordination,
-cross-protocol server validation, and release preparation remain pending.
+support the core workflow. Connection recovery, shared-store cross-process locks,
+and real local FTP/FTPS/SFTP validation are implemented. Production-host checks,
+cross-platform installation, and npm release preparation remain pending.
 
 ## Setup paths
 

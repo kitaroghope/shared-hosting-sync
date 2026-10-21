@@ -66,15 +66,15 @@ test('onboarding snapshots encrypt secrets and roll back failed updates', () => 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-proj-'))
 const freshTmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-proj-'))
 
-test('migrations create all 5 tables', () => {
+test('migrations create project storage and operation locks', () => {
   const db = openDb()
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     .all()
     .map((r) => r.name)
-  assert.deepEqual(tables, ['env_overrides', 'events', 'projects', 'schema_meta', 'secrets'])
+  assert.deepEqual(tables, ['env_overrides', 'events', 'operation_locks', 'projects', 'schema_meta', 'secrets'])
   const v = db.prepare("SELECT value FROM schema_meta WHERE key='version'").get()
-  assert.equal(v.value, '1')
+  assert.equal(v.value, '2')
   assert.match(dbPath(), /devsync\.db$/)
 })
 

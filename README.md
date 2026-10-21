@@ -171,8 +171,9 @@ The dashboard shows file progress, failed files, the last successful sync, and
 the latest 100 activity entries. File lists show up to 200 entries per category;
 excluded directories represent their contents. Activity is held in memory rather
 than a persistent deployment history. A project cannot be edited or run twice
-at once within the dashboard; coordination with separate CLI processes remains
-part of Phase 5.
+at once. Shared locks also prevent competing CLI processes or other dashboards
+from operating on that project or overlapping destinations for the same server
+account. The dashboard explains when an operation must be stopped elsewhere.
 
 ## Environment variables
 
@@ -300,6 +301,19 @@ Provision any server-side application secrets separately.
 - Local deletions are not mirrored; existing server files remain in place.
 - Uploads use a temporary file followed by a rename to reduce partial-file reads.
 - Watch batches rapid changes before uploading.
+- Temporary connection failures get two reconnect attempts, with short increasing
+  delays. A retry restarts the entire temporary-file upload, including rename;
+  it does not retry an uncertain rename by itself. Authentication, certificate,
+  and permission failures require correction rather than automatic retries.
+- An active watcher retries failed transient cycles after five seconds without
+  requiring another save. Stop cancels queued retries and drains current work.
+  If the initial connection never opens, correct the problem and start again.
+- CLI and UI operations share SQLite locks under `DEVSYNC_HOME`. Watches retain
+  their lock until stopped; locks from exited processes are reclaimed on the next
+  operation. Separate projects with overlapping paths on the same protocol,
+  hostname, port, and username are also blocked. This coordinates one machine and
+  one settings store; different stores, machines, hostname aliases, and account
+  aliases are not coordinated. Keep `DEVSYNC_HOME` on a local disk.
 - Plan, sync, and watch use the resolved server destination. Missing destinations
   fail before connecting; `/` is allowed only when explicitly configured.
 - Equal-size files are compared using streamed SHA-256 hashes of local and remote
@@ -313,6 +327,9 @@ Provision any server-side application secrets separately.
 
 Prefer FTPS or SFTP when your host supports them. Plain FTP sends credentials and
 file contents without encryption.
+FTPS certificates must pass normal certificate verification. Self-signed or
+expired hosting certificates need correction or an appropriately trusted CA;
+devsync does not silently bypass verification.
 
 ## Current implementation
 
@@ -322,6 +339,8 @@ The package is in development. Before relying on it for deployments:
   selection, and `deploy` are implemented in Phase 2.
 - Phase 4 adds UI upload previews, deploy/sync, watch start/stop, progress, and
   actionable file errors through the shared deployment engine.
+- Phase 5 adds shared CLI/UI locks, transient connection recovery, watch retries,
+  exclusion previews in the CLI, and real local FTPS/SFTP integration checks.
 - Phase 3 adds complete UI onboarding, local/server folder pickers, secure
   imported settings, and reviewed project saving.
 - Phase 1 fixes destination handling, same-size change detection, path validation,
@@ -342,8 +361,10 @@ npm test
 The default test command covers ignore rules, uploads, CLI onboarding/deployments
 against a local FTP server, password prompts, server browsing, SFTP adapter
 contracts, UI onboarding and deployment APIs, watch cycles, configuration, the project database, and encrypted
-credentials. SFTP server and live-host validation remain
-part of the later cross-protocol reliability work.
+credentials. Real local FTP, FTPS, and SFTP servers exercise nested uploads,
+same-size edits, empty files, larger transfers, exclusions, and failures.
+No production hosting account has been used; provider-specific checks remain
+necessary before relying on a particular host.
 
 ## License
 

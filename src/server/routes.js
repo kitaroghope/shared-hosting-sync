@@ -6,6 +6,7 @@
 // Errors are returned as { error: 'message' } with appropriate status.
 
 import path from 'node:path'
+import { mutateProject } from '../core/operationLock.js'
 import { ENV_SCHEMA } from '../core/envSchema.js'
 import { validateRemotePath } from '../paths.js'
 import {
@@ -176,7 +177,9 @@ export async function handle(req, res, { onboarding, deployments } = {}) {
     const id = Number(url.pathname.split('/').pop())
     if (!Number.isFinite(id)) return json(res, 400, { error: 'bad id' })
     try { deployments?.ensureEditable(id) } catch (error) { return json(res, 409, { error: error.message }) }
-    const ok = deleteProject(id)
+    let ok
+    try { ok = mutateProject(id, () => deleteProject(id)) }
+    catch (error) { return json(res, error.statusCode || 400, { error: error.message }) }
     return json(res, ok ? 200 : 404, { ok })
   }
 
@@ -251,8 +254,9 @@ export async function handle(req, res, { onboarding, deployments } = {}) {
         }
       }
 
-      setEnvOverrides(id, overrides)
-      setSecrets(id, merged)
+      try {
+        mutateProject(id, () => { setEnvOverrides(id, overrides); setSecrets(id, merged) })
+      } catch (error) { return json(res, error.statusCode || 400, { error: error.message }) }
       return json(res, 200, { ok: true, credsSet: Object.keys(merged).length > 0 })
     }
   }
