@@ -137,13 +137,13 @@ masked in the UI and logs; configuration sources should be visible.
 | --- | --- | --- |
 | `devsync` | Preview the current registered project; onboard an unknown folder | Preview available; onboarding planned |
 | `devsync ui` | Open the local browser dashboard from any directory | Available |
-| `devsync add <label> <localPath>` | Register a local source folder | Available; hosting setup currently uses the UI |
+| `devsync add <label> <localPath> [remotePath]` | Register a local source folder and optional destination | Available; hosting setup currently uses the UI |
 | `devsync projects` | List saved projects | Available |
 | `devsync test [label]` | Test a project's hosting connection | Available |
 | `devsync ls [label] [remotePath]` | List server files and folders | Available |
 | `devsync plan [label]` | Preview uploads without writing to the server | Available |
 | `devsync deploy [label]` | Upload eligible files for a deployment | Planned |
-| `devsync sync [label]` | Upload files selected by change detection | Available; see current limitations below |
+| `devsync sync [label]` | Upload files selected by content comparison | Available |
 | `devsync watch [label]` | Upload eligible changes as you save | Available |
 | `devsync remove <label>` | Remove local project registration | Available |
 | `devsync doctor` | Check local setup | Available |
@@ -153,7 +153,7 @@ Omit a project label to use the project registered for the current directory.
 Use a label to operate on a saved project from elsewhere.
 
 For the existing plan and sync commands, `--force` includes files even when their
-sizes match. `sync --dry-run` previews without uploading. Watch also supports
+contents match. `sync --dry-run` previews without uploading. Watch also supports
 `--dry-run`. Watch observes subsequent changes; run a sync first for an initial
 upload. Stop CLI watching with Ctrl+C.
 
@@ -194,6 +194,7 @@ The hard blocklist always wins over `.deployignore`, including negation rules:
 
 ```text
 .env and .env.*
+.devsync.env
 *.pem, *.key, *.p12, *.pfx
 id_rsa, id_rsa.pub, id_ed25519
 .git/, .svn/, .hg/
@@ -209,6 +210,13 @@ Provision any server-side application secrets separately.
 - Local deletions are not mirrored; existing server files remain in place.
 - Uploads use a temporary file followed by a rename to reduce partial-file reads.
 - Watch batches rapid changes before uploading.
+- Plan, sync, and watch use the resolved server destination. Missing destinations
+  fail before connecting; `/` is allowed only when explicitly configured.
+- Equal-size files are compared using streamed SHA-256 hashes of local and remote
+  contents. This reads matching-size remote files over the connection, increasing
+  download traffic during previews and syncs. `--force` bypasses content comparison.
+- Upload failures remain visible in the saved project status and make one-time
+  sync commands exit unsuccessfully. Directory and inspection errors are surfaced.
 - Settings and encrypted saved credentials live in `~/.devsync/`; set
   `DEVSYNC_HOME` to use another location.
 - The UI runs locally and uses the same saved project store as the CLI.
@@ -221,16 +229,12 @@ file contents without encryption.
 The package is in development. Before relying on it for deployments:
 
 - `.env` discovery and missing-setting prompts described above are not implemented.
-  The existing resolver reads `.devsync.env` from the launch directory or a file
+  The existing resolver reads `.devsync.env` from the selected project folder or a file
   selected by `DEVSYNC_ENV_FILE`.
 - CLI-only credential onboarding and the `deploy` command are planned.
 - UI deployment and watch controls are planned.
-- The CLI accepts an optional destination argument to `add` but currently does
-  not save it. Destination settings are entered through the UI.
-- The current CLI deployment path does not pass the saved destination into the
-  uploader. This must be corrected before relying on a selected server folder.
-- Sync currently compares file sizes. An edit that preserves size can be skipped;
-  `--force` uploads it again. Stronger change detection is planned.
+- Phase 1 fixes destination handling, same-size change detection, path validation,
+  and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
 - The package's repository links still contain placeholders. Publication and the
   public npm package name must be verified before release.
 
@@ -244,8 +248,10 @@ npm install
 npm test
 ```
 
-The default test command covers ignore rules, uploads, and FTP transport tests.
-Additional suites live in `test/`.
+The default test command covers ignore rules, uploads, CLI deployments against a
+local FTP server, SFTP adapter contracts, watch cycles, configuration, the project
+database, and encrypted credentials. SFTP server and live-host validation remain
+part of the later cross-protocol reliability work.
 
 ## License
 

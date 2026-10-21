@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-import { buildPlan, runPlan } from '../src/uploader.js'
+import { buildPlan, runPlan, toRemotePath } from '../src/uploader.js'
 import { buildMatcher } from '../src/ignore.js'
 import { createMockTransport } from './fixtures/mock-transport.js'
 
@@ -24,7 +24,72 @@ function freshProject() {
   return { root, w }
 }
 
-test('buildPlan: same-size file on remote is skipped', async () => {
+test('same-size changes upload, then the next plan skips identical content', async (t) => {
+  const { root, w } = freshProject()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  w('index.php', 'new!')
+  const transport = createMockTransport({ remoteRoot: {
+    site: { 'index.php': { content: 'old!', _meta: { type: 'file', size: 4 } } }
+  } })
+  const project = { localPath: root, remotePath: '/site' }
+  const matcher = buildMatcher(root)
+  const plan = await buildPlan(project, matcher, transport)
+  assert.equal(plan.uploads.length, 1)
+  assert.equal(plan.uploads[0].remote, '/site/index.php')
+  assert.equal((await runPlan(plan, transport)).failed.length, 0)
+  assert.equal((await buildPlan(project, matcher, transport)).skipped.length, 1)
+  const forced = await buildPlan(project, matcher, transport, { force: true })
+  assert.equal(forced.uploads.length, 1)
+})
+
+test('invalid destinations and escaped local files fail before any remote writes', async (t) => {
+  const { root, w } = freshProject()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  w('index.php')
+  const transport = createMockTransport()
+  const matcher = buildMatcher(root)
+  for (const remotePath of [undefined, '', 'public_html', '/site/../other', '/site\nQUIT']) {
+    await assert.rejects(buildPlan({ localPath: root, remotePath }, matcher, transport))
+  }
+  assert.throws(() => toRemotePath(root, '/site', path.join(root, '..', 'outside.php')), /inside/)
+  assert.equal(transport.calls.length, 0)
+  assert.equal(toRemotePath(root, '/', path.join(root, 'index.php')), '/index.php')
+})
+
+test('inspection and directory failures are surfaced without uploading', async (t) => {
+  const { root, w } = freshProject()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  w('index.php', 'new!')
+  const matcher = buildMatcher(root)
+  const project = { localPath: root, remotePath: '/site' }
+  for (const method of ['stat', 'checksum']) {
+    const transport = createMockTransport({ remoteRoot: {
+      site: { 'index.php': { content: 'old!', _meta: { type: 'file', size: 4 } } }
+    } })
+    transport.failNext(method, new Error('connection lost'))
+    await assert.rejects(buildPlan(project, matcher, transport), /connection lost/)
+    assert.equal(transport.calls.some((c) => c.method === 'put'), false)
+  }
+  const transport = createMockTransport()
+  const plan = await buildPlan(project, matcher, transport)
+  transport.failNext('ensureDir', new Error('permission denied'))
+  const result = await runPlan(plan, transport)
+  assert.equal(result.done.length, 0)
+  assert.match(result.failed[0].error, /permission denied/)
+  assert.equal(transport.calls.some((c) => c.method === 'put'), false)
+})
+
+test('a directory at a file destination is rejected even with force', async (t) => {
+  const { root, w } = freshProject()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  w('index.php')
+  const transport = createMockTransport({ remoteRoot: {
+    site: { 'index.php': { _meta: { type: 'dir' } } }
+  } })
+  await assert.rejects(buildPlan({ localPath: root, remotePath: '/site' }, buildMatcher(root), transport, { force: true }), /directory/)
+})
+
+test('buildPlan: identical remote content is skipped', async () => {
   const { root, w } = freshProject()
   try {
     w('index.php', '<?php echo 1;')
@@ -38,7 +103,7 @@ test('buildPlan: same-size file on remote is skipped', async () => {
         app: {
           _meta: { type: 'dir' },
           // File keys must include the full name with extension.
-          'index.php': { _meta: { type: 'file', size: indexSize, mtime: 0 } },
+          'index.php': { content: '<?php echo 1;', _meta: { type: 'file', size: indexSize, mtime: 0 } },
           api: {
             _meta: { type: 'dir' }
             // vouchers.php intentionally missing

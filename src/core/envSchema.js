@@ -65,7 +65,6 @@ export const ENV_SCHEMA = [
     key: 'DEVSYNC_REMOTE_PATH',
     type: 'path',
     required: true,
-    default: '/',
     label: 'Remote path',
     help: 'The folder on the server you sync to. Use Browse in the UI to find it.'
   },

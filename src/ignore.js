@@ -9,6 +9,7 @@ export const DEPLOYIGNORE = '.deployignore'
  * This is the control that stops a secret reaching a live host.
  */
 export const HARD_BLOCKLIST = [
+  '.devsync.env',
   '.env',
   '.env.*',
   '*.pem',

@@ -77,3 +77,20 @@ test('validate catches bad enum/int', () => {
   assert.equal(port.min, 1)
   assert.equal(port.max, 65535)
 })
+
+test('project-scoped connection files set the protocol port and ignore unrelated keys', () => {
+  const localPath = freshTmp()
+  const p = createProject({ label: 'file-config', localPath })
+  try {
+    fs.writeFileSync(path.join(localPath, '.devsync.env'), 'DEVSYNC_TRANSPORT=ftp\nDEVSYNC_HOST=project-host\nAPP_SECRET=ignored\n')
+    const r = resolveEnv(p.id, { transport: 'sftp' })
+    assert.equal(r.values.DEVSYNC_HOST, 'project-host')
+    assert.equal(r.values.DEVSYNC_PORT, 21)
+    assert.equal(r.values.APP_SECRET, undefined)
+    assert.equal(r.values.DEVSYNC_REMOTE_PATH, undefined, 'no implicit server root')
+    assert.ok(r.warnings.some((w) => w.includes('DEVSYNC_REMOTE_PATH')))
+  } finally {
+    deleteProject(p.id)
+    fs.rmSync(localPath, { recursive: true, force: true })
+  }
+})

@@ -8,6 +8,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { ENV_SCHEMA } from '../core/envSchema.js'
+import { validateRemotePath } from '../paths.js'
 import {
   listProjects,
   getProject,
@@ -185,6 +186,9 @@ export async function handle(req, res) {
         const s = ENV_SCHEMA.find((x) => x.key === e.key)
         if (!s) { errors.push(`unknown key: ${e.key}`); continue }
         const v = e.value
+        if (e.key === 'DEVSYNC_REMOTE_PATH') {
+          try { validateRemotePath(v) } catch (err) { errors.push(err.message) }
+        }
         if (s.required && (!v || v === '')) errors.push(`${e.key} is required`)
         if (s.type === 'enum' && v && !s.values.includes(v)) errors.push(`${e.key} must be one of ${s.values.join(', ')}`)
         if (s.type === 'int' && v) {

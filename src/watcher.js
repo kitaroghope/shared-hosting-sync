@@ -75,6 +75,7 @@ export class ProjectWatcher {
       this.stats.failed += result.failed.length
       this.onSettle({
         type: 'settle',
+        dryRun: this.dryRun,
         uploaded: result.done.length,
         failed: result.failed,
         bytes: result.bytes,

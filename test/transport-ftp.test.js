@@ -6,6 +6,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
 import { FtpTransport } from '../src/transport/ftp.js'
 import { startFtpFixture } from './fixtures/ftp.js'
 
@@ -27,7 +28,7 @@ test('FtpTransport: connect, upload a file, list it back, assert bytes match', a
 
     // ensureDir + put + stat + list roundtrip
     await transport.ensureDir('/app')
-    await transport.put(new URL('../package.json', import.meta.url).pathname.replace(/^\//, ''), '/app/package.json')
+    await transport.put(fileURLToPath(new URL('../package.json', import.meta.url)), '/app/package.json')
     // Note: basic-ftp wants an actual file path; we use the project's own
     // package.json as a real file to upload.
 
@@ -59,7 +60,7 @@ test('FtpTransport: rename moves a file from one path to another', async () => {
     await transport.connect()
 
     await transport.ensureDir('/app')
-    await transport.put(new URL('../package.json', import.meta.url).pathname.replace(/^\//, ''), '/app/old-name.json')
+    await transport.put(fileURLToPath(new URL('../package.json', import.meta.url)), '/app/old-name.json')
     await transport.rename('/app/old-name.json', '/app/new-name.json')
 
     const list = await transport.list('/app')
@@ -86,7 +87,7 @@ test('FtpTransport: delete removes a file', async () => {
     await transport.connect()
 
     await transport.ensureDir('/app')
-    await transport.put(new URL('../package.json', import.meta.url).pathname.replace(/^\//, ''), '/app/temp.json')
+    await transport.put(fileURLToPath(new URL('../package.json', import.meta.url)), '/app/temp.json')
     await transport.delete('/app/temp.json')
 
     const list = await transport.list('/app')

@@ -1,13 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { validateRemotePath, relativeFile } from './paths.js'
+import { hashFile } from './checksum.js'
 
 const TMP_SUFFIX = '.devsync-uploading'
 
 /** Local Windows path -> remote POSIX path, relative to the project root. */
 export function toRemotePath(projectRoot, remoteRoot, localAbsPath) {
-  const rel = path.relative(projectRoot, localAbsPath).split(path.sep).join('/')
-  const root = (remoteRoot || '').replace(/\\/g, '/').replace(/\/+$/, '')
-  return root ? `${root}/${rel}` : `/${rel}`
+  const rel = relativeFile(projectRoot, localAbsPath)
+  const root = validateRemotePath(remoteRoot)
+  return `${root === '/' ? '' : root}/${rel}`
 }
 
 /** Ancestor directories of a remote file path, outermost first. */
@@ -30,8 +32,8 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false } = 
     let entries = []
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
+    } catch (err) {
+      throw new Error(`Cannot read local folder ${dir}: ${err.message}`)
     }
     for (const e of entries) {
       const abs = path.join(dir, e.name)
@@ -50,10 +52,12 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false } = 
 
 /**
  * Build the list of uploads without touching the network for writes.
- * Compares against remote size, skipping identical files.
+ * Size differences upload immediately; equal sizes require a content match.
  */
 export async function buildPlan(project, matcher, transport, { force = false } = {}) {
   const { localPath, remotePath } = project
+  validateRemotePath(remotePath)
+  if (!fs.statSync(localPath).isDirectory()) throw new Error('Local source must be a directory')
   const files = collectFiles(localPath, matcher)
   const uploads = []
   const skipped = []
@@ -64,17 +68,19 @@ export async function buildPlan(project, matcher, transport, { force = false } =
     const remote = toRemotePath(localPath, remotePath, abs)
     let localStat
     try {
+      relativeFile(fs.realpathSync(localPath), fs.realpathSync(abs))
       localStat = fs.statSync(abs)
-    } catch {
-      continue
+    } catch (err) {
+      if (err.code === 'ENOENT') continue
+      throw err
     }
 
-    if (!force) {
-      const remoteStat = await transport.stat(remote).catch(() => null)
-      if (remoteStat && remoteStat.size === localStat.size && !remoteStat.isDir) {
-        skipped.push({ rel, bytes: localStat.size, reason: 'same size' })
-        continue
-      }
+    const remoteStat = await transport.stat(remote)
+    if (remoteStat?.isDir) throw new Error(`Remote file destination is a directory: ${remote}`)
+    if (!force && remoteStat && remoteStat.size === localStat.size &&
+        await transport.checksum(remote) === await hashFile(abs)) {
+      skipped.push({ rel, bytes: localStat.size, reason: 'same content' })
+      continue
     }
 
     uploads.push({
@@ -96,7 +102,7 @@ export async function buildPlan(project, matcher, transport, { force = false } =
  */
 export async function uploadOne(transport, item) {
   for (const dir of item.dirs) {
-    await transport.ensureDir(dir).catch(() => {})
+    await transport.ensureDir(dir)
   }
   const tmp = item.remote + TMP_SUFFIX
   try {

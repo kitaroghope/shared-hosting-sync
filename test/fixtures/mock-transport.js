@@ -13,6 +13,8 @@
 // (uploader.js, watcher.js) so we can exercise it deterministically.
 
 import path from 'node:path'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 
 export function createMockTransport({ remoteRoot = {} } = {}) {
   const calls = []
@@ -76,6 +78,14 @@ export function createMockTransport({ remoteRoot = {} } = {}) {
       return { size: 0, mtime: null, isDir: typeof node === 'object' }
     },
 
+    async checksum(remotePath) {
+      calls.push({ method: 'checksum', path: remotePath })
+      if (failures.has('checksum')) throw failures.get('checksum')
+      const node = _resolve(remote, remotePath)
+      if (typeof node?.content !== 'string') throw new Error('mock: remote content unavailable')
+      return createHash('sha256').update(node.content).digest('hex')
+    },
+
     async put(localPath, remotePath) {
       calls.push({ method: 'put', localPath, remotePath })
       if (failures.has('put')) throw failures.get('put')
@@ -86,7 +96,8 @@ export function createMockTransport({ remoteRoot = {} } = {}) {
       const parts = remotePath.split('/').filter(Boolean)
       const filename = parts.pop()
       const dir = parts.length ? _ensureDir(remote, parts) : remote
-      dir[filename] = { _meta: { type: 'file', size: 0, mtime: Date.now() } }
+      const content = fs.readFileSync(localPath, 'utf8')
+      dir[filename] = { content, _meta: { type: 'file', size: Buffer.byteLength(content), mtime: Date.now() } }
     },
 
     async rename(from, to) {

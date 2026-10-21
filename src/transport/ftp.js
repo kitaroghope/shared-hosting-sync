@@ -1,4 +1,5 @@
 import { Client } from 'basic-ftp'
+import { hashSink } from '../checksum.js'
 
 /**
  * FTP/FTPS adapter.
@@ -44,11 +45,7 @@ export class FtpTransport {
     for (const part of parts) {
       acc = acc === '' || acc === '.' ? `${acc}/${part}` : `${acc}/${part}`
       const current = acc.startsWith('/') ? acc : `/${acc}`
-      try {
-        await this.client.ensureDir(current)
-      } catch {
-        // ensureDir throws when the dir already exists on some servers — fine.
-      }
+      await this.client.ensureDir(current)
     }
   }
 
@@ -65,9 +62,16 @@ export class FtpTransport {
     try {
       const size = await this.client.size(remotePath)
       return size === -1 ? null : { size, isDir: false }
-    } catch {
-      return null
+    } catch (err) {
+      if (err.code === 550) return null
+      throw err
     }
+  }
+
+  async checksum(remotePath) {
+    const sink = hashSink()
+    await this.client.downloadTo(sink.stream, remotePath)
+    return sink.digest()
   }
 
   async put(localPath, remotePath) {

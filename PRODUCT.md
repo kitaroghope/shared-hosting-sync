@@ -78,4 +78,5 @@ Users may also enter all hosting details manually without creating an `.env`.
 Projects onboarded in the UI must immediately work through the CLI and vice versa.
 
 These setup paths are requirements. The current resolver reads `.devsync.env`
-from the working directory and does not yet implement this `.env` onboarding.
+from the selected project folder and does not yet implement this `.env` onboarding.
+See PHASES.md for implementation milestones.

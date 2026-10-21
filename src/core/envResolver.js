@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import dotenv from 'dotenv'
 import { ENV_SCHEMA, defaultsFor } from './envSchema.js'
-import { effectiveEnv } from './projects.js'
+import { effectiveEnv, getProject } from './projects.js'
 
 /**
  * Resolve the effective env for `projectId` against a given transport.
@@ -47,20 +47,25 @@ export function resolveEnv(projectId, { transport, envFile } = {}) {
 
   // (3) project-scoped .devsync.env (only if no explicit file was given AND no env var pointed us somewhere else)
   if (layers.length === 0) {
-    const cwd = process.cwd()
-    const candidate = path.join(cwd, '.devsync.env')
+    const project = getProject(projectId)
+    const candidate = path.join(project.localPath, '.devsync.env')
     if (fs.existsSync(candidate)) layers.push({ kind: 'file', file: candidate })
   }
 
   for (const layer of layers) {
     if (!fs.existsSync(layer.file)) continue
     const parsed = dotenv.parse(fs.readFileSync(layer.file, 'utf8'))
-    for (const k of Object.keys(parsed)) {
+    for (const k of Object.keys(parsed).filter((key) => ENV_SCHEMA.some((s) => s.key === key))) {
       if (parsed[k] !== '' && parsed[k] != null) {
         values[k] = parsed[k]
         sources[k] = layer.kind
       }
     }
+  }
+
+  // A protocol supplied by a file must also select the matching default port.
+  if (sources.DEVSYNC_PORT === 'default') {
+    values.DEVSYNC_PORT = defaultsFor(values.DEVSYNC_TRANSPORT).DEVSYNC_PORT
   }
 
   // Validate everything we have. We don't throw — we collect warnings.

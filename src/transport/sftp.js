@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import SftpClient from 'ssh2-sftp-client'
+import { hashSink } from '../checksum.js'
+import { finished } from 'node:stream/promises'
 
 /** SFTP adapter. Parallel-friendly — ftp() does not have the FTP serialisation limit. */
 export class SftpTransport {
@@ -41,8 +43,9 @@ export class SftpTransport {
 
   async ensureDir(remotePath) {
     if (!remotePath) return
-    const isDir = await this.client.isDir(remotePath).catch(() => false)
-    if (!isDir) await this.client.mkdir(remotePath, true)
+    const type = await this.client.exists(remotePath)
+    if (type && type !== 'd') throw new Error(`Remote directory path is occupied by a file: ${remotePath}`)
+    if (!type) await this.client.mkdir(remotePath, true)
   }
 
   async exists(remotePath) {
@@ -53,10 +56,18 @@ export class SftpTransport {
   async stat(remotePath) {
     try {
       const s = await this.client.stat(remotePath)
-      return { size: s.size, isDir: s.isDirectory() }
-    } catch {
-      return null
+      return { size: s.size, isDir: s.isDirectory }
+    } catch (err) {
+      if (err.code === 2 || err.code === 'ENOENT') return null
+      throw err
     }
+  }
+
+  async checksum(remotePath) {
+    const sink = hashSink()
+    await this.client.get(remotePath, sink.stream)
+    await finished(sink.stream)
+    return sink.digest()
   }
 
   async put(localPath, remotePath) {
@@ -71,7 +82,7 @@ export class SftpTransport {
   }
 
   async delete(remotePath) {
-    await this.client.rm(remotePath, true)
+    await this.client.delete(remotePath, true)
   }
 
   async close() {
