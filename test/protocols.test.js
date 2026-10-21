@@ -22,14 +22,14 @@ after(async () => {
 
 for (const kind of ['ftps', 'sftp']) {
   test(`${kind}: real server preview, nested deployment, same-size sync, exclusions and failure`, async () => {
-    const server = kind === 'sftp' ? await startSftpFixture() : await startFtpFixture({ tls })
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-protocol-'))
-    const creds = kind === 'sftp' ? server.creds : {
-      transport: 'ftps', secure: true, host: server.host, port: server.port, username: server.username, password: server.password,
-      timeoutMs: 3000, secureOptions: { ca: tls.cert }
-    }
-    let transport
+    let server, root, transport
     try {
+      server = kind === 'sftp' ? await startSftpFixture() : await startFtpFixture({ tls })
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-protocol-'))
+      const creds = kind === 'sftp' ? server.creds : {
+        transport: 'ftps', secure: true, host: server.host, port: server.port, username: server.username, password: server.password,
+        timeoutMs: 3000, secureOptions: { ca: tls.cert }
+      }
       fs.mkdirSync(path.join(root, 'nested'))
       fs.writeFileSync(path.join(root, 'nested/index.html'), 'old!')
       const payload = Buffer.alloc(256 * 1024, 0x6b)
@@ -59,7 +59,7 @@ for (const kind of ['ftps', 'sftp']) {
       assert.equal((await runPlan(bad, transport)).failed.length, 3)
       assert.equal(fs.existsSync(remote + '.devsync-uploading'), false)
     } catch (error) { console.error(`${kind} integration failed:`, error); throw error }
-    finally { if (transport) await transport.close(); await server.stop(); fs.rmSync(root, { recursive: true, force: true }) }
+    finally { if (transport) await transport.close(); if (server) await server.stop(); if (root) fs.rmSync(root, { recursive: true, force: true }) }
   })
 }
 
