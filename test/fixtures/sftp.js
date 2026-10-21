@@ -61,11 +61,13 @@ export async function startSftpFixture() {
     })))
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
-  server.unref()
   return {
     rootDir: root, creds: { transport: 'sftp', host: '127.0.0.1', port: server.address().port, username: 'tester', password: 'test-only', timeoutMs: 3000 },
     async stop() {
-      for (const client of clients) client.destroy()
+      await Promise.all([...clients].map((client) => new Promise((resolve) => {
+        client.once('close', resolve)
+        client.end()
+      })))
       await new Promise((resolve) => server.close(resolve))
       fs.rmSync(root, { recursive: true, force: true })
     }

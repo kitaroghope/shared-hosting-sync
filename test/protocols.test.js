@@ -1,4 +1,4 @@
-import { test, after } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,11 +14,6 @@ const tls = {
   key: fs.readFileSync(new URL('./fixtures/tls/localhost-key.pem', import.meta.url)),
   cert: fs.readFileSync(new URL('./fixtures/tls/localhost-cert.pem', import.meta.url))
 }
-
-after(async () => {
-  await new Promise(setImmediate)
-  if (process.env.CI) console.log('Protocol fixture resources after cleanup:', process.getActiveResourcesInfo())
-})
 
 for (const kind of ['ftps', 'sftp']) {
   test(`${kind}: real server preview, nested deployment, same-size sync, exclusions and failure`, async () => {
