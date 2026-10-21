@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,6 +14,11 @@ const tls = {
   key: fs.readFileSync(new URL('./fixtures/tls/localhost-key.pem', import.meta.url)),
   cert: fs.readFileSync(new URL('./fixtures/tls/localhost-cert.pem', import.meta.url))
 }
+
+after(async () => {
+  await new Promise(setImmediate)
+  if (process.env.CI) console.log('Protocol fixture resources after cleanup:', process.getActiveResourcesInfo())
+})
 
 for (const kind of ['ftps', 'sftp']) {
   test(`${kind}: real server preview, nested deployment, same-size sync, exclusions and failure`, async () => {
@@ -49,11 +54,12 @@ for (const kind of ['ftps', 'sftp']) {
       assert.equal((await runPlan(changed, transport)).failed.length, 0)
       assert.equal(fs.readFileSync(remote, 'utf8'), 'new!')
       assert.equal(fs.existsSync(path.join(server.rootDir, 'public_html/site/.env')), false)
-      fs.writeFileSync(path.join(server.rootDir, 'blocked'), 'file')
       const bad = await buildPlan({ ...project, remotePath: '/blocked/site' }, matcher, transport)
+      fs.writeFileSync(path.join(server.rootDir, 'blocked'), 'file')
       assert.equal((await runPlan(bad, transport)).failed.length, 3)
       assert.equal(fs.existsSync(remote + '.devsync-uploading'), false)
-    } finally { if (transport) await transport.close(); await server.stop(); fs.rmSync(root, { recursive: true, force: true }) }
+    } catch (error) { console.error(`${kind} integration failed:`, error); throw error }
+    finally { if (transport) await transport.close(); await server.stop(); fs.rmSync(root, { recursive: true, force: true }) }
   })
 }
 

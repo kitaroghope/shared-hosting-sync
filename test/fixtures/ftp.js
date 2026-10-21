@@ -33,8 +33,15 @@ export async function startFtpFixture({ username = 'tester', password = 'pw', ro
     // override the root to point at the per-test tmp directory.
     root: () => root
   })
+  const sockets = new Set()
+  const connections = new Set()
+  server.server.on('connection', (socket) => {
+    sockets.add(socket)
+    socket.once('close', () => sockets.delete(socket))
+  })
 
   server.on('login', ({ username: u, password: p, connection }, resolve, reject) => {
+    connections.add(connection)
     if (u === username && p === password) {
       // ftp-srv treats a numeric zero SIZE message as absent. Real FTP servers
       // return "213 0"; keep empty-file coverage faithful to the protocol.
@@ -60,6 +67,14 @@ export async function startFtpFixture({ username = 'tester', password = 'pw', ro
     rootDir: root,
     stop: () =>
       new Promise((res) => {
+        // Close fixture-owned passive listeners even after ftp-srv removes a
+        // command connection from its registry (notably after TLS failures).
+        for (const connection of connections) {
+          connection.connector?.dataSocket?.destroy()
+          connection.connector?.dataServer?.close()
+          connection.commandSocket?.destroy()
+        }
+        for (const socket of sockets) socket.destroy()
         server.close()
           .catch(() => {})
           .finally(() => {
