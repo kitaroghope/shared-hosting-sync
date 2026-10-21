@@ -1,10 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * Everything lives under ~/.devsync so no project directory is ever touched.
@@ -58,7 +56,8 @@ export function saveConfig(config) {
 export function loadCredentials() {
   ensureHome()
   if (!fs.existsSync(ENV_FILE)) {
-    fs.copyFileSync(path.join(HERE, '..', '.env.example'), ENV_FILE)
+    // Preserve the v1 helper's format; the shipped example is now project-scoped.
+    fs.writeFileSync(ENV_FILE, '# Legacy devsync v1 settings\nPROTO=sftp\nHOST=\nPORT=\nUSERNAME=\nPASSWORD=\n')
     throw new Error(
       `Created ${ENV_FILE} from the template.\n` +
       `Edit it with your host details, then re-run the same command.`

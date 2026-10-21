@@ -22,12 +22,30 @@ uploads. Uploader, watch, SFTP adapter, configuration, database, and secret test
 are also included in `npm test`. Real SFTP/FTPS server validation is still pending;
 no production hosting account was used.
 
-## Phase 2: Complete CLI — next
+## Phase 2: Complete CLI — implemented 21 October 2026
 
-Read `.env`, prompt for missing settings, test connections, browse/select server
-destinations, and provide `deploy` without requiring the UI.
+- Bare `devsync` onboards unknown folders from `.env` and previews without upload.
+- `setup [label]` fills missing/invalid details, hides password input, tests the
+  connection, browses for an unspecified destination, saves, and previews.
+- `setup --edit` revisits connection settings; `setup --browse` selects a new
+  destination. The folder browser supports numbered directories, parent
+  navigation, absolute paths, explicit current-folder selection, and cancellation.
+- `deploy` uploads all eligible files; `sync` uploads changed content. Both support
+  previews and operate on saved projects from any working directory.
+- Shared resolution applies command overrides, project `.env`, legacy
+  `.devsync.env`, saved settings, and defaults. Explicit files replace automatic
+  discovery. Relative SFTP keys follow the selected project folder.
+- Setup saves a shared snapshot atomically, encrypts credentials, ignores unrelated
+  app values, and never rewrites `.env`. File values remain authoritative on later
+  invocations. Failed or cancelled new setup leaves no project registration.
+- Complete settings work noninteractively. Missing settings fail promptly with
+  variable names. The environment example and command documentation are current.
 
-## Phase 3: UI onboarding — planned
+Validation includes prompt/browsing tests, configuration precedence, atomic saved
+settings, and real FTP CLI onboarding, previews, deploy/sync behavior, failed
+authentication, saved credentials, and operation from another directory.
+
+## Phase 3: UI onboarding — next
 
 Launch anywhere, select a local folder, load its settings, fill missing hosting
 details, and browse/select the server destination.

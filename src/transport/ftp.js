@@ -14,14 +14,19 @@ export class FtpTransport {
 
   async connect() {
     const c = new Client(this.creds.timeoutMs)
-    await c.access({
-      host: this.creds.host,
-      port: this.creds.port || 21,
-      user: this.creds.username,
-      password: this.creds.password,
-      secure: this.creds.secure,
-      secureOptions: { rejectUnauthorized: false }
-    })
+    try {
+      await c.access({
+        host: this.creds.host,
+        port: this.creds.port || 21,
+        user: this.creds.username,
+        password: this.creds.password,
+        secure: this.creds.secure,
+        secureOptions: { rejectUnauthorized: false }
+      })
+    } catch (err) {
+      c.close()
+      throw err
+    }
     this.client = c
     return this
   }

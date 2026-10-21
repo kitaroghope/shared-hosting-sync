@@ -1,140 +1,97 @@
-// envResolver.js — assemble the effective DEVSYNC_* values for a project.
-//
-// Discovery order (first source wins):
-//   1. --env-file flag (passed in by the CLI as { envFile })
-//   2. process.env.DEVSYNC_ENV_FILE (if set)
-//   3. <project>/.devsync.env (project-scoped dotfile, not the user's .env)
-//   4. DB vault: env_overrides + secrets (always)
-//   5. Schema defaults
-//
-// Important: items 1–3 are *raw dotenv values*. Item 4 is the structured
-// DB. We merge them, with earlier sources winning.
-
+// Resolve only documented devsync settings; application secrets stay untouched.
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import dotenv from 'dotenv'
-import { ENV_SCHEMA, defaultsFor } from './envSchema.js'
+import { ENV_SCHEMA, defaultsFor, validate } from './envSchema.js'
 import { effectiveEnv, getProject } from './projects.js'
+import { validateRemotePath } from '../paths.js'
 
-/**
- * Resolve the effective env for `projectId` against a given transport.
- * Returns { values: { KEY: value }, sources: { KEY: 'cli'|'env'|'file'|'db'|'default' } }
- */
-export function resolveEnv(projectId, { transport, envFile } = {}) {
-  const sources = {}
+const recognized = new Set(ENV_SCHEMA.map((s) => s.key))
+const present = (value) => value !== undefined && value !== null && value !== ''
+
+export function resolveEnv(projectId, { transport = 'sftp', envFile, localPath, overrides = {} } = {}) {
+  const project = projectId == null ? null : getProject(projectId)
+  localPath = project?.localPath || localPath
+  if (!localPath) throw new Error('A local project folder is required')
   const values = { ...defaultsFor(transport) }
-  for (const s of ENV_SCHEMA) {
-    sources[s.key] = 'default'
-  }
-
-  // DB — always present, lowest priority among user-supplied sources.
-  const fromDb = effectiveEnv(projectId, transport)
-  for (const [k, v] of Object.entries(fromDb.values)) {
-    if (v !== null && v !== undefined && v !== '') {
-      values[k] = v
-      sources[k] = fromDb.sources[k] || 'db'
-    }
-  }
-
-  // Then layered sources in priority order: flag > env var > .devsync.env
-  // (each one wins over the previous).
-  const layers = []
-
-  // (2) env var pointing at a file
-  if (!envFile && process.env.DEVSYNC_ENV_FILE) envFile = process.env.DEVSYNC_ENV_FILE
-  // (1) explicit flag wins
-  if (envFile) layers.push({ kind: 'file', file: envFile })
-
-  // (3) project-scoped .devsync.env (only if no explicit file was given AND no env var pointed us somewhere else)
-  if (layers.length === 0) {
-    const project = getProject(projectId)
-    const candidate = path.join(project.localPath, '.devsync.env')
-    if (fs.existsSync(candidate)) layers.push({ kind: 'file', file: candidate })
-  }
-
-  for (const layer of layers) {
-    if (!fs.existsSync(layer.file)) continue
-    const parsed = dotenv.parse(fs.readFileSync(layer.file, 'utf8'))
-    for (const k of Object.keys(parsed).filter((key) => ENV_SCHEMA.some((s) => s.key === key))) {
-      if (parsed[k] !== '' && parsed[k] != null) {
-        values[k] = parsed[k]
-        sources[k] = layer.kind
+  const sources = Object.fromEntries(ENV_SCHEMA.map((s) => [s.key, 'default']))
+  if (project) {
+    const saved = effectiveEnv(projectId, transport)
+    for (const [key, value] of Object.entries(saved.values)) {
+      if (recognized.has(key) && present(value)) {
+        values[key] = value
+        sources[key] = saved.sources[key]
       }
     }
   }
-
-  // A protocol supplied by a file must also select the matching default port.
-  if (sources.DEVSYNC_PORT === 'default') {
-    values.DEVSYNC_PORT = defaultsFor(values.DEVSYNC_TRANSPORT).DEVSYNC_PORT
-  }
-
-  // Validate everything we have. We don't throw — we collect warnings.
-  const warnings = []
-  for (const s of ENV_SCHEMA) {
-    const v = values[s.key]
-    if (v == null || v === '') {
-      if (s.required) warnings.push(`${s.key} is required`)
+  const explicitFile = envFile || process.env.DEVSYNC_ENV_FILE
+  if (explicitFile && typeof explicitFile !== 'string') throw new Error('--env-file requires a file path')
+  const layers = explicitFile
+    ? [{ file: path.resolve(explicitFile), source: envFile ? '--env-file' : 'DEVSYNC_ENV_FILE', required: true }]
+    : ['.devsync.env', '.env'].map((name) => ({ file: path.join(localPath, name), source: name }))
+  for (const layer of layers) {
+    if (!fs.existsSync(layer.file)) {
+      if (layer.required) throw new Error('The selected environment file does not exist')
       continue
     }
-    const r = validateLive(s.key, v)
-    if (!r.ok) warnings.push(r.message)
+    const relative = path.relative(localPath, layer.file)
+    const name = path.basename(layer.file)
+    const insideProject = !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep)
+    if (insideProject && name !== '.env' && !name.startsWith('.env.') && name !== '.devsync.env') {
+      throw new Error('An environment file inside the project must be named .env, .env.*, or .devsync.env so it stays excluded from deployment')
+    }
+    const parsed = dotenv.parse(fs.readFileSync(layer.file, 'utf8'))
+    for (const [key, value] of Object.entries(parsed)) {
+      if (recognized.has(key) && present(value)) {
+        values[key] = value
+        sources[key] = layer.source
+      }
+    }
   }
-
+  for (const [key, value] of Object.entries(overrides)) {
+    if (recognized.has(key) && present(value)) {
+      values[key] = value
+      sources[key] = 'cli'
+    }
+  }
+  if (sources.DEVSYNC_PORT === 'default') values.DEVSYNC_PORT = defaultsFor(values.DEVSYNC_TRANSPORT).DEVSYNC_PORT
+  if (values.DEVSYNC_PRIVATE_KEY) {
+    const keyPath = values.DEVSYNC_PRIVATE_KEY
+    values.DEVSYNC_PRIVATE_KEY = keyPath.startsWith('~/') || keyPath.startsWith('~\\')
+      ? path.join(os.homedir(), keyPath.slice(2)) : path.resolve(localPath, keyPath)
+  }
+  const warnings = ENV_SCHEMA.map((s) => settingError(s.key, values[s.key], values)).filter(Boolean)
   return { values, sources, warnings }
 }
 
-/**
- * Validate a value against the schema without re-importing — avoids a circular
- * import between projects.js and envSchema.js's `validate`.
- */
-function validateLive(key, value) {
-  const s = ENV_SCHEMA.find((x) => x.key === key)
-  if (!s) return { ok: false, message: `unknown key: ${key}` }
-  if ((value === '' || value == null) && s.required) {
-    return { ok: false, message: `${key} is required` }
+export function settingError(key, value, values = {}) {
+  if (key === 'DEVSYNC_PASSWORD' && values.DEVSYNC_TRANSPORT === 'sftp' && values.DEVSYNC_PRIVATE_KEY && !value) return null
+  const result = validate(key, value)
+  if (!result.ok) return result.message
+  if (key === 'DEVSYNC_HOST' && value && (/\s|\/|\\/.test(value))) return 'DEVSYNC_HOST must be a hostname or IP without a URL scheme'
+  if (key === 'DEVSYNC_USERNAME' && value && !String(value).trim()) return 'DEVSYNC_USERNAME is required'
+  if (key === 'DEVSYNC_REMOTE_PATH') {
+    try { validateRemotePath(value) } catch (err) { return err.message }
   }
-  if (value === '' || value == null) return { ok: true }
-  switch (s.type) {
-    case 'int': {
-      const n = Number(value)
-      if (!Number.isInteger(n)) return { ok: false, message: `${key} must be an integer` }
-      if (s.min != null && n < s.min) return { ok: false, message: `${key} must be >= ${s.min}` }
-      if (s.max != null && n > s.max) return { ok: false, message: `${key} must be <= ${s.max}` }
-      return { ok: true }
-    }
-    case 'bool':
-      if (value === true || value === false) return { ok: true }
-      if (value === 'true' || value === 'false' || value === '1' || value === '0') return { ok: true }
-      return { ok: false, message: `${key} must be true or false` }
-    case 'enum':
-      if (!s.values.includes(value)) {
-        return { ok: false, message: `${key} must be one of: ${s.values.join(', ')}` }
-      }
-      return { ok: true }
-    case 'string':
-    case 'path':
-    case 'secret':
-      return { ok: true }
+  if (key === 'DEVSYNC_PRIVATE_KEY' && value && values.DEVSYNC_TRANSPORT === 'sftp') {
+    try {
+      if (!fs.statSync(value).isFile()) return 'DEVSYNC_PRIVATE_KEY must point to a file'
+      fs.accessSync(value, fs.constants.R_OK)
+    } catch { return 'DEVSYNC_PRIVATE_KEY must point to a readable local file' }
   }
-  return { ok: true }
+  return null
 }
 
-/** Build the credentials shape the transport layer expects, from resolved env. */
 export function credsFromResolved(values) {
   const transport = values.DEVSYNC_TRANSPORT
-  const port =
-    values.DEVSYNC_PORT !== undefined && values.DEVSYNC_PORT !== ''
-      ? Number(values.DEVSYNC_PORT)
-      : transport === 'sftp'
-      ? 22
-      : 21
   return {
     transport,
     host: values.DEVSYNC_HOST,
-    port,
+    port: Number(values.DEVSYNC_PORT || (transport === 'sftp' ? 22 : 21)),
     username: values.DEVSYNC_USERNAME,
     password: values.DEVSYNC_PASSWORD || undefined,
-    privateKeyPath: values.DEVSYNC_PRIVATE_KEY || undefined,
+    privateKeyPath: transport === 'sftp' ? values.DEVSYNC_PRIVATE_KEY || undefined : undefined,
     secure: transport === 'ftps',
     timeoutMs: 20000
   }

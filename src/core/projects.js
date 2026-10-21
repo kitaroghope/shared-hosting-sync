@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { openDb } from './db.js'
 import { encrypt, decrypt } from './secrets.js'
-import { defaultsFor } from './envSchema.js'
+import { defaultsFor, ENV_SCHEMA } from './envSchema.js'
 
 const now = () => new Date().toISOString()
 
@@ -177,6 +177,30 @@ export function listEnvOverrides(projectId) {
   return db
     .prepare('SELECT key, value, is_secret FROM env_overrides WHERE project_id = ? ORDER BY key')
     .all(projectId)
+}
+
+/** Save a complete onboarding snapshot atomically, with secrets encrypted. */
+export function saveConfiguration(projectId, values, { sources = {} } = {}) {
+  const db = openDb()
+  const secrets = {}
+  db.exec('BEGIN')
+  try {
+    db.prepare('DELETE FROM env_overrides WHERE project_id = ?').run(projectId)
+    const insert = db.prepare('INSERT INTO env_overrides (project_id, key, value, is_secret, updated_at) VALUES (?, ?, ?, ?, ?)')
+    for (const schema of ENV_SCHEMA) {
+      const value = values[schema.key]
+      if (sources[schema.key] === 'default') continue
+      if (value === undefined || value === null || value === '') continue
+      const secret = schema.type === 'secret' || schema.key === 'DEVSYNC_PRIVATE_KEY'
+      if (secret) secrets[schema.key] = value
+      insert.run(projectId, schema.key, secret ? null : String(value), secret ? 1 : 0, now())
+    }
+    setSecrets(projectId, secrets)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
 }
 
 /**

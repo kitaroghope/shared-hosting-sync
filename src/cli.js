@@ -5,14 +5,13 @@
 //   - canonicalise cwd
 //   - look up project by local_path in the DB
 //   - found → preview the upload plan without uploading
-//   - not found → fail with one-liner + suggest `devsync ui`
+//   - not found → onboard from project .env plus prompts, then preview
 //
 // All commands use the v2 DB (core/db.js) as source of truth. v1's
 // ~/.devsync/config.json + .env are imported on first open by v1Migrate.
 
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
 import { createTransport } from './transport/index.js'
 import { buildMatcher, ensureDeployignore } from './ignore.js'
 import { buildPlan, runPlan } from './uploader.js'
@@ -26,15 +25,18 @@ import {
   createProject,
   deleteProject,
   setEnvOverrides,
+  saveConfiguration,
   setStatus,
-  effectiveEnv,
   hasSecrets
 } from './core/projects.js'
-import { resolveEnv, credsFromResolved } from './core/envResolver.js'
+import { resolveEnv, credsFromResolved, settingError } from './core/envResolver.js'
+import { ENV_SCHEMA } from './core/envSchema.js'
 import { startServer } from './server/index.js'
 import { HOME } from './config.js'
 import { validateRemotePath } from './paths.js'
-import { defaultsFor, validate } from './core/envSchema.js'
+import { prepareConfiguration, assertLocalFolder } from './onboarding.js'
+import { createPrompter } from './prompt.js'
+import { parseArgs } from './arguments.js'
 
 const C = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
@@ -45,17 +47,22 @@ const C = {
   c: (s) => `\x1b[36m${s}\x1b[0m`
 }
 
-const argv = process.argv.slice(2)
-const cmd = argv[0]
-const flags = Object.fromEntries(
-  argv
-    .filter((a) => a.startsWith('--'))
-    .map((a) => {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      return [k, v ?? true]
-    })
-)
-const positional = argv.slice(1).filter((a) => !a.startsWith('--'))
+let cmd, flags, positional
+try {
+  const parsed = parseArgs(process.argv.slice(2))
+  cmd = parsed.command
+  flags = parsed.flags
+  positional = parsed.positional
+} catch (err) {
+  console.error(err.message)
+  process.exit(1)
+}
+const sessionOverrides = new Map()
+const prompt = createPrompter()
+const flagOverrides = () => Object.fromEntries([
+  ['transport', 'DEVSYNC_TRANSPORT'], ['host', 'DEVSYNC_HOST'],
+  ['username', 'DEVSYNC_USERNAME'], ['port', 'DEVSYNC_PORT'], ['remote-path', 'DEVSYNC_REMOTE_PATH']
+].filter(([flag]) => flags[flag] !== undefined).map(([flag, key]) => [key, flags[flag]]))
 
 const kb = (n) => (n / 1024).toFixed(1) + ' KB'
 const mb = (n) => (n / 1024 / 1024).toFixed(2) + ' MB'
@@ -78,53 +85,62 @@ function openAndMigrate() {
   return db
 }
 
-function resolveProjectOrCwd(label) {
-  if (label) {
-    const p = getProjectByLabel(label)
-    if (!p) die(`no project named "${label}" — run \`devsync projects\``)
-    return p
+async function setupProject(project) {
+  const localPath = assertLocalFolder(project?.localPath || process.cwd())
+  const resolved = resolveEnv(project?.id, { localPath, envFile: flags['env-file'], overrides: flagOverrides() })
+  const prepared = await prepareConfiguration(resolved, {
+    localPath,
+    ask: prompt.interactive ? (question) => prompt.ask(question) : undefined,
+    log: info, edit: !!flags.edit, browse: !!flags.browse
+  })
+  await prompt.close()
+  const created = !project
+  if (!project) {
+    const base = flags.label || path.basename(localPath) || 'project'
+    let label = base
+    let suffix = 2
+    while (getProjectByLabel(label)) label = `${base}-${suffix++}`
+    project = createProject({ label, localPath })
   }
-  // Bare invocation: try cwd
+  try {
+    saveConfiguration(project.id, prepared.values, { sources: prepared.sources })
+    ensureDeployignore(localPath)
+  } catch (err) {
+    if (created) deleteProject(project.id)
+    throw err
+  }
+  sessionOverrides.set(project.id, Object.fromEntries(Object.entries(prepared.values)
+    .filter(([key]) => prepared.sources[key] === 'prompt')))
+  ok(`saved "${project.label}" — ${localPath} → ${prepared.values.DEVSYNC_REMOTE_PATH}`)
+  return project
+}
+
+async function resolveProjectOrCwd(label) {
+  if (label) {
+    const project = getProjectByLabel(label)
+    if (!project) throw new Error(`no project named "${label}" — run devsync projects`)
+    return project
+  }
   const cwd = fs.realpathSync(process.cwd())
-  const byPath = getProjectByLocalPath(cwd)
-  if (byPath) return byPath
-  die(
-    `no project registered for ${cwd}\n` +
-    `  run \`devsync ui\` to add it via the web UI\n` +
-    `  or  \`devsync add <label> <localPath> <remotePath>\``
-  )
+  return getProjectByLocalPath(cwd) || setupProject(null)
 }
 
 async function credsForProject(project, { deployment = false } = {}) {
-  const transport = (effectiveEnv(project.id, 'sftp').values.DEVSYNC_TRANSPORT || 'sftp')
-  const r = resolveEnv(project.id, { transport, envFile: flags['env-file'] })
-  if (flags.transport) {
-    r.values.DEVSYNC_TRANSPORT = flags.transport
-    if (r.sources.DEVSYNC_PORT === 'default') r.values.DEVSYNC_PORT = defaultsFor(flags.transport).DEVSYNC_PORT
-  }
-  for (const key of ['DEVSYNC_TRANSPORT', 'DEVSYNC_PORT']) {
-    const result = validate(key, r.values[key])
-    if (!result.ok) throw new Error(result.message)
-  }
+  const r = resolveEnv(project.id, {
+    envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
+  })
+  const errors = ENV_SCHEMA.filter((s) => deployment || s.key !== 'DEVSYNC_REMOTE_PATH')
+    .map((s) => settingError(s.key, r.values[s.key], r.values)).filter(Boolean)
+  if (errors.length) throw new Error(`${errors.join('; ')}. Update the project .env or run devsync setup ${project.label}.`)
   if (deployment) {
     project.remotePath = validateRemotePath(r.values.DEVSYNC_REMOTE_PATH)
-    if (!fs.statSync(project.localPath).isDirectory()) throw new Error('Local source must be a directory')
+    assertLocalFolder(project.localPath)
   }
-  if (r.warnings.length) {
-    for (const w of r.warnings) warn(w)
+  return {
+    ...credsFromResolved(r.values),
+    dryRun: ['true', '1', true].includes(r.values.DEVSYNC_DRY_RUN),
+    debounceMs: Number(r.values.DEVSYNC_DEBOUNCE_MS)
   }
-  // Required-key gate: refuse to dial if creds are missing.
-  const need = ['DEVSYNC_HOST', 'DEVSYNC_USERNAME']
-  const missing = need.filter((k) => !r.values[k])
-  const key = r.values.DEVSYNC_PRIVATE_KEY
-  if (key && r.values.DEVSYNC_TRANSPORT === 'sftp' && !fs.existsSync(key)) throw new Error('SSH private key file does not exist')
-  if (missing.length || (!r.values.DEVSYNC_PASSWORD && !(r.values.DEVSYNC_TRANSPORT === 'sftp' && key))) {
-    die(
-      `creds not set for "${project.label}" (missing ${missing.join(', ') || 'password'})\n` +
-      `  run \`devsync ui\` to enter them`
-    )
-  }
-  return { ...credsFromResolved(r.values), dryRun: ['true', '1', true].includes(r.values.DEVSYNC_DRY_RUN) }
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,8 +149,21 @@ const COMMANDS = {
   async init() {
     openAndMigrate()
     ok('v2 ready')
-    info('next: devsync ui   (open the web UI to add your first project)')
-    info('  or: devsync add <label> <localPath> <remotePath>')
+    info('next: devsync setup   (configure the current folder in the terminal)')
+    info('  or: cd <project> && devsync')
+  },
+
+  async setup() {
+    openAndMigrate()
+    const project = positional[0] ? getProjectByLabel(positional[0]) : getProjectByLocalPath(fs.realpathSync(process.cwd()))
+    if (positional[0] && !project) throw new Error(`no project named "${positional[0]}"`)
+    const saved = await setupProject(project)
+    await prompt.close()
+    return COMMANDS.plan(saved)
+  },
+
+  async deploy() {
+    return COMMANDS.sync(undefined, { force: true })
   },
 
   async add() {
@@ -150,7 +179,7 @@ const COMMANDS = {
     if (remotePath) setEnvOverrides(proj.id, [{ key: 'DEVSYNC_REMOTE_PATH', value: remotePath, isSecret: false }])
     ensureDeployignore(localPath)
     info(`added "${label}" — ${localPath}`)
-    info(`next: open \`devsync ui\` to set host/credentials${remotePath ? '' : '/remote path'}`)
+    info(`next: devsync setup ${label} (configure hosting entirely in the terminal)`)
     if (remotePath) info(`destination: ${remotePath}`)
   },
 
@@ -175,19 +204,19 @@ const COMMANDS = {
     }
     console.log(C.b('Projects') + C.dim(`  (${all.length})`))
     for (const p of all) {
-      const e = effectiveEnv(p.id, 'sftp').values
+      const e = resolveEnv(p.id).values
       console.log(
         `  ${C.b(p.label.padEnd(14))} ${p.localPath}\n` +
-        `  ${' '.repeat(14)} ${C.dim('→')} ${e.DEVSYNC_REMOTE_PATH || '/'}  ${C.dim('[' + (e.DEVSYNC_TRANSPORT || 'sftp') + ']')}  ${p.lastStatus === 'error' ? C.r(p.lastStatus) : C.dim(p.lastStatus)}`
+        `  ${' '.repeat(14)} ${C.dim('→')} ${e.DEVSYNC_REMOTE_PATH || '(not configured)'}  ${C.dim('[' + (e.DEVSYNC_TRANSPORT || 'sftp') + ']')}  ${p.lastStatus === 'error' ? C.r(p.lastStatus) : C.dim(p.lastStatus)}`
       )
     }
     console.log()
-    console.log(C.dim(`stored in ${path.join(process.env.DEVSYNC_HOME || os.homedir(), '.devsync', 'devsync.db')}`))
+    console.log(C.dim(`stored in ${path.join(HOME, 'devsync.db')}`))
   },
 
   async test() {
     openAndMigrate()
-    const proj = resolveProjectOrCwd(positional[0])
+    const proj = await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj)
     info(`connecting ${creds.transport}://${creds.username}@${creds.host}:${creds.port}`)
     let t
@@ -211,19 +240,22 @@ const COMMANDS = {
 
   async ls() {
     openAndMigrate()
-    const proj = resolveProjectOrCwd(positional[0])
+    const proj = await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj)
     const t = await createTransport(creds, flags.transport).catch((e) => die(e.message))
-    const entries = await t.list(positional[1] || '/')
-    for (const e of entries) {
-      console.log(`  ${e.type === 'dir' ? C.c('dir ') : '    '} ${e.name}`)
+    try {
+      const entries = await t.list(positional[1] || '/')
+      for (const e of entries) {
+        console.log(`  ${e.type === 'dir' ? C.c('dir ') : '    '} ${e.name}`)
+      }
+    } finally {
+      await t.close()
     }
-    await t.close()
   },
 
-  async plan() {
+  async plan(project) {
     openAndMigrate()
-    const proj = resolveProjectOrCwd(positional[0])
+    const proj = project || await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
     const t = await createTransport(creds, flags.transport).catch((e) => die(e.message))
@@ -256,9 +288,9 @@ const COMMANDS = {
     }
   },
 
-  async sync() {
+  async sync(project, { force = !!flags.force } = {}) {
     openAndMigrate()
-    const proj = resolveProjectOrCwd(positional[0])
+    const proj = project || await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
     let t
@@ -268,9 +300,9 @@ const COMMANDS = {
 
     try {
       t = await createTransport(creds)
-      const p = await buildPlan(proj, matcher, t, { force: !!flags.force })
+      const p = await buildPlan(proj, matcher, t, { force })
       console.log()
-      console.log(C.b(`Sync "${proj.label}"`) + C.dim(`  ${p.uploads.length} file(s) · ${mb(p.comparedBytes)}`))
+      console.log(C.b(`${cmd === 'deploy' ? 'Deploy' : 'Sync'} "${proj.label}"`) + C.dim(`  ${p.uploads.length} file(s) · ${mb(p.comparedBytes)}`))
       if (dryRun) {
         console.log(C.y('  dry run — nothing was uploaded'))
         for (const u of p.uploads.slice(0, 40)) console.log(`  ${C.g('+')} ${u.rel}`)
@@ -312,7 +344,7 @@ const COMMANDS = {
 
   async watch() {
     openAndMigrate()
-    const proj = resolveProjectOrCwd(positional[0])
+    const proj = await resolveProjectOrCwd(positional[0])
     const creds = await credsForProject(proj, { deployment: true })
     const matcher = buildMatcher(proj.localPath, { useGitignore: false })
     ensureDeployignore(proj.localPath)
@@ -326,6 +358,7 @@ const COMMANDS = {
 
     const w = new ProjectWatcher(proj, matcher, t, {
       dryRun: creds.dryRun || !!flags['dry-run'],
+      debounceMs: creds.debounceMs,
       onEvent: (e) => {
         if (e.type === 'error') {
           setStatus(proj.id, 'error', { error: e.message })
@@ -394,9 +427,11 @@ const COMMANDS = {
 ${C.b('devsync')} — global local-dev → hosting sync (v2)
 
 ${C.b('first-time setup')}
-  devsync ui                          open the web UI (recommended)
+  devsync                             onboard the current folder and preview
+  devsync setup [label]                fill missing settings and preview
+  devsync ui                          open the web UI
   devsync add <label> <localPath> [remotePath]
-                                      register a project (creds via UI)
+                                      register a project; then run setup
   devsync projects                     list registered projects
 
 ${C.b('bare invocation')}
@@ -406,8 +441,19 @@ ${C.b('per-project')}
   devsync test [label]                 check connectivity
   devsync ls [label] [remotePath]      browse the remote
   devsync plan [label]                 preview, no upload
-  devsync sync [label]                 one-shot upload
+  devsync deploy [label]               upload all eligible files
+  devsync sync [label]                 upload changed files
   devsync watch [label]                continuous, debounced
+
+${C.b('options')}
+  --env-file <path>                    read a specific environment file
+  --transport=ftp|ftps|sftp             override protocol
+  --host <host> --username <user> --port <port>
+  --remote-path <path>                 override server destination
+  --edit                              setup: edit connection settings
+  --browse                            setup: choose a different server folder
+  --label <name>                       name a new project
+  --dry-run --force                    preview / include unchanged files
 
 ${C.b('other')}
   devsync remove <label>
@@ -417,32 +463,17 @@ ${C.b('other')}
   }
 }
 
-// Bare invocation: try to resolve the cwd's project; if none, fail with a
-// one-liner pointing at `devsync ui`. Otherwise behave like `devsync plan`
-// (dry-run by default; pass --sync to actually upload).
-if (!cmd) {
-  Promise.resolve()
-    .then(async () => {
-      openAndMigrate()
-      const proj = resolveProjectOrCwd()
-      if (flags.sync) {
-        return COMMANDS.sync()
-      }
-      return COMMANDS.plan()
-    })
-    .catch((e) => {
-      console.error(C.r('\n✗ ') + (e && e.message ? e.message : String(e)))
-      process.exit(1)
-    })
-} else if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
-  COMMANDS.help()
-} else if (COMMANDS[cmd]) {
-  Promise.resolve()
-    .then(() => COMMANDS[cmd]())
-    .catch((e) => {
-      console.error(C.r('\n✗ ') + (e && e.message ? e.message : String(e)))
-      process.exit(1)
-    })
-} else {
-  die(`unknown command: ${cmd}\n  run \`devsync help\``)
+async function main() {
+  try {
+    if (flags.help || cmd === 'help') return COMMANDS.help()
+    if (!cmd) return flags.sync ? await COMMANDS.sync() : await COMMANDS.plan()
+    if (!Object.hasOwn(COMMANDS, cmd)) throw new Error(`unknown command: ${cmd}. Run devsync help`)
+    return await COMMANDS[cmd]()
+  } finally {
+    await prompt.close()
+  }
 }
+main().catch((err) => {
+  console.error(C.r('\n✗ ') + (err?.message || String(err)))
+  process.exitCode = 1
+})

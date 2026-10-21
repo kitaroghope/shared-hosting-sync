@@ -94,3 +94,47 @@ test('project-scoped connection files set the protocol port and ignore unrelated
     fs.rmSync(localPath, { recursive: true, force: true })
   }
 })
+
+test('.env overrides legacy and saved values; explicit files and CLI options take precedence', () => {
+  const localPath = freshTmp()
+  const external = freshTmp()
+  const p = createProject({ label: 'precedence', localPath })
+  const previousFile = process.env.DEVSYNC_ENV_FILE
+  try {
+    delete process.env.DEVSYNC_ENV_FILE
+    setEnvOverrides(p.id, [{ key: 'DEVSYNC_HOST', value: 'saved-host', isSecret: false }])
+    fs.writeFileSync(path.join(localPath, '.devsync.env'), 'DEVSYNC_HOST=legacy-host')
+    fs.writeFileSync(path.join(localPath, '.env'), 'DEVSYNC_HOST=project-host\nAPP_SECRET=must-not-import\nDEVSYNC_REMOTE_PATH=/project')
+    const automatic = resolveEnv(p.id)
+    assert.equal(automatic.values.DEVSYNC_HOST, 'project-host')
+    assert.equal(automatic.sources.DEVSYNC_HOST, '.env')
+    assert.equal(automatic.values.APP_SECRET, undefined)
+    const file = path.join(external, 'credentials.env')
+    fs.writeFileSync(file, 'DEVSYNC_HOST=explicit-host')
+    process.env.DEVSYNC_ENV_FILE = file
+    assert.equal(resolveEnv(p.id).values.DEVSYNC_HOST, 'explicit-host')
+    assert.equal(resolveEnv(p.id, { envFile: path.join(localPath, '.env') }).values.DEVSYNC_HOST, 'project-host')
+    assert.equal(resolveEnv(p.id, { envFile: file, overrides: { DEVSYNC_HOST: 'cli-host' } }).values.DEVSYNC_HOST, 'cli-host')
+    assert.equal(resolveEnv(p.id, { envFile: file }).values.DEVSYNC_REMOTE_PATH, undefined, 'explicit file replaces auto discovery')
+    assert.throws(() => resolveEnv(p.id, { envFile: path.join(external, 'missing') }), /does not exist/)
+    fs.writeFileSync(path.join(localPath, 'credentials.txt'), 'DEVSYNC_PASSWORD=secret')
+    assert.throws(() => resolveEnv(p.id, { envFile: path.join(localPath, 'credentials.txt') }), /stays excluded/)
+  } finally {
+    if (previousFile === undefined) delete process.env.DEVSYNC_ENV_FILE
+    else process.env.DEVSYNC_ENV_FILE = previousFile
+    deleteProject(p.id)
+    fs.rmSync(localPath, { recursive: true, force: true })
+    fs.rmSync(external, { recursive: true, force: true })
+  }
+})
+
+test('relative SFTP key paths resolve from the selected project and replace password requirements', () => {
+  const localPath = freshTmp()
+  try {
+    fs.writeFileSync(path.join(localPath, 'id_ed25519'), 'test-only-placeholder')
+    fs.writeFileSync(path.join(localPath, '.env'), 'DEVSYNC_TRANSPORT=sftp\nDEVSYNC_PRIVATE_KEY=./id_ed25519')
+    const r = resolveEnv(null, { localPath })
+    assert.equal(r.values.DEVSYNC_PRIVATE_KEY, path.join(localPath, 'id_ed25519'))
+    assert.equal(r.warnings.some((w) => w.includes('PASSWORD') || w.includes('PRIVATE_KEY')), false)
+  } finally { fs.rmSync(localPath, { recursive: true, force: true }) }
+})

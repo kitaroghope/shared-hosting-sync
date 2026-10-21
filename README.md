@@ -7,9 +7,9 @@ Use the terminal or a local browser dashboard. Both interfaces are intended to
 control the same projects, settings, and deployment operations.
 
 > **Development status:** This README defines the agreed product experience.
-> Automatic `.env` onboarding, complete CLI setup, and UI deployment controls are
-> planned. See [Current implementation](#current-implementation) before using this
-> checkout. Commands and examples marked **planned** are not available yet.
+> CLI `.env` onboarding, terminal setup, deployment, and sync are implemented.
+> Complete UI onboarding and UI deployment controls are still planned. See
+> [Current implementation](#current-implementation) for remaining release work.
 
 ## Why devsync?
 
@@ -49,7 +49,7 @@ inspected with Node.js 25.9.0. The current package metadata still declares an
 older minimum and needs updating before release.
 You also need hosting credentials and access to the destination folder.
 
-## Start from a project folder — planned
+## Start from a project folder
 
 Define your hosting settings in the project's `.env`:
 
@@ -69,7 +69,7 @@ cd my-project
 devsync
 ```
 
-For a new project, devsync will:
+For a new project, devsync:
 
 1. Use the current directory as the local source folder.
 2. Read recognized `DEVSYNC_*` values from its `.env`.
@@ -78,10 +78,46 @@ For a new project, devsync will:
 5. Save the project and show an upload preview.
 
 Complete settings mean no repeated setup questions. Onboarding itself does not
-upload files. Choose Deploy after reviewing the preview.
+upload files. After reviewing the preview, upload with:
+
+```sh
+devsync deploy
+```
+
+The new project is named after its local folder. Use `devsync --label=my-site`
+to choose a name during first-time onboarding. Duplicate names receive a numeric
+suffix automatically.
 
 For a registered project, bare `devsync` previews its upload plan. Use an explicit
 sync or deploy command to upload.
+
+### Configure entirely in the terminal
+
+No `.env` is required. Run `devsync setup` in your project folder and enter the
+missing details. Password input is hidden; during `--edit`, Enter keeps an existing
+password or passphrase. The destination browser lists server
+folders: enter a folder number to open it, `..` to go up, an absolute path to open
+another folder, `.` to select the current folder, or `q` to cancel. Selecting `/`
+requires explicitly choosing `.` at the account root.
+
+```sh
+devsync setup                       # configure this folder and preview
+devsync add my-site ./dist           # register a different source folder
+devsync setup my-site                # configure that saved project and preview
+devsync setup my-site --edit         # revisit connection settings
+devsync setup my-site --browse       # select a different server destination
+devsync deploy my-site               # upload all eligible files
+devsync sync my-site                 # upload only changed files
+```
+
+Setup tests the connection before saving. It stores a configuration snapshot and
+encrypted credentials outside the project, without rewriting `.env`. Corrections
+to invalid file values apply during that invocation; fix the file too, because
+file values take precedence again on the next run.
+
+Without an interactive terminal, supply every required setting through `.env`,
+an explicit environment file, saved settings, or supported options. Incomplete
+setup exits with the missing variable names instead of waiting for input.
 
 ## Start from anywhere with the UI
 
@@ -108,7 +144,7 @@ the dashboard. A project saved in the UI must also work from the CLI.
 testing, and remote browsing. Local folder browsing, `.env` onboarding, upload
 previews, deployment, and watch controls in the UI are planned.
 
-## Environment variables — planned .env contract
+## Environment variables
 
 Only recognized devsync keys are read. Unrelated application variables are ignored.
 Blank values count as missing. devsync does not rewrite your application's `.env`.
@@ -126,23 +162,36 @@ Blank values count as missing. devsync does not rewrite your application's `.env
 Use the server folder as shown through your FTP account. For some accounts the
 website folder is `/public_html`; others already start inside it. Browse to verify.
 
-The intended precedence is explicit command options, project `.env` values, saved
-project settings, then defaults. Saved projects read configuration relative to
-their source folder, even when operated from another directory. Passwords are
-masked in the UI and logs; configuration sources should be visible.
+The precedence is explicit command options, project `.env`, legacy `.devsync.env`,
+saved project settings, then defaults. Only nonblank recognized values override
+lower-priority settings. Ports follow the protocol unless explicitly supplied.
+Relative SFTP key paths are resolved from the selected project folder; `~/` is
+also supported.
+
+`--env-file <path>` selects a specific file instead of automatic discovery. It
+overrides the file selected by `DEVSYNC_ENV_FILE`. Relative explicit-file paths
+are resolved from the command's working directory. Files inside the project must
+be named `.env`, `.env.*`, or `.devsync.env` so their credentials remain excluded;
+files outside the project can use any name. See [.env.example](.env.example).
+
+Saved projects read automatic configuration relative to their source folder,
+even when operated from another directory. Setup shows each setting's source and
+masks passwords. Supplied invalid values require correction; unrelated app keys
+are never imported into the saved configuration.
 
 ## CLI controls
 
 | Command | Purpose | Status |
 | --- | --- | --- |
-| `devsync` | Preview the current registered project; onboard an unknown folder | Preview available; onboarding planned |
+| `devsync` | Onboard an unknown folder, or preview the current registered project | Available |
+| `devsync setup [label]` | Fill missing hosting settings, test the connection, save and preview | Available |
 | `devsync ui` | Open the local browser dashboard from any directory | Available |
-| `devsync add <label> <localPath> [remotePath]` | Register a local source folder and optional destination | Available; hosting setup currently uses the UI |
+| `devsync add <label> <localPath> [remotePath]` | Register a local source folder and optional destination | Available; run `setup` next |
 | `devsync projects` | List saved projects | Available |
 | `devsync test [label]` | Test a project's hosting connection | Available |
 | `devsync ls [label] [remotePath]` | List server files and folders | Available |
 | `devsync plan [label]` | Preview uploads without writing to the server | Available |
-| `devsync deploy [label]` | Upload eligible files for a deployment | Planned |
+| `devsync deploy [label]` | Upload all eligible files, including unchanged ones | Available |
 | `devsync sync [label]` | Upload files selected by content comparison | Available |
 | `devsync watch [label]` | Upload eligible changes as you save | Available |
 | `devsync remove <label>` | Remove local project registration | Available |
@@ -152,7 +201,14 @@ masked in the UI and logs; configuration sources should be visible.
 Omit a project label to use the project registered for the current directory.
 Use a label to operate on a saved project from elsewhere.
 
-For the existing plan and sync commands, `--force` includes files even when their
+Value options accept both `--name=value` and `--name value` forms. Boolean options
+use `--dry-run` or `--dry-run=false`. Connection/destination
+overrides are `--transport`, `--host`, `--username`, `--port`, and `--remote-path`.
+They apply to the current operation; setup saves the completed configuration.
+Use `.env` or the hidden setup prompt for passwords rather than command arguments.
+Run `devsync help` for all options.
+
+For plan and sync commands, `--force` includes files even when their
 contents match. `sync --dry-run` previews without uploading. Watch also supports
 `--dry-run`. Watch observes subsequent changes; run a sync first for an initial
 upload. Stop CLI watching with Ctrl+C.
@@ -228,10 +284,8 @@ file contents without encryption.
 
 The package is in development. Before relying on it for deployments:
 
-- `.env` discovery and missing-setting prompts described above are not implemented.
-  The existing resolver reads `.devsync.env` from the selected project folder or a file
-  selected by `DEVSYNC_ENV_FILE`.
-- CLI-only credential onboarding and the `deploy` command are planned.
+- CLI onboarding, `.env` discovery, hidden password prompts, server-folder
+  selection, and `deploy` are implemented in Phase 2.
 - UI deployment and watch controls are planned.
 - Phase 1 fixes destination handling, same-size change detection, path validation,
   and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
@@ -248,9 +302,10 @@ npm install
 npm test
 ```
 
-The default test command covers ignore rules, uploads, CLI deployments against a
-local FTP server, SFTP adapter contracts, watch cycles, configuration, the project
-database, and encrypted credentials. SFTP server and live-host validation remain
+The default test command covers ignore rules, uploads, CLI onboarding/deployments
+against a local FTP server, password prompts, server browsing, SFTP adapter
+contracts, watch cycles, configuration, the project database, and encrypted
+credentials. SFTP server and live-host validation remain
 part of the later cross-protocol reliability work.
 
 ## License

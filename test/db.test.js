@@ -38,8 +38,30 @@ const {
   deleteSecrets,
   setEnvOverrides,
   listEnvOverrides,
-  effectiveEnv
+  effectiveEnv,
+  saveConfiguration
 } = await import('../src/core/projects.js')
+
+test('onboarding snapshots encrypt secrets and roll back failed updates', () => {
+  const p = createProject({ label: 'snapshot', localPath: fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-snapshot-')) })
+  const db = openDb()
+  try {
+    saveConfiguration(p.id, {
+      DEVSYNC_TRANSPORT: 'ftp', DEVSYNC_HOST: 'original-host', DEVSYNC_PASSWORD: 'original-secret', DEVSYNC_PORT: 21
+    }, { sources: { DEVSYNC_PORT: 'default' } })
+    assert.equal(getSecrets(p.id).DEVSYNC_PASSWORD, 'original-secret')
+    assert.equal(listEnvOverrides(p.id).find((e) => e.key === 'DEVSYNC_PASSWORD').value, null)
+    assert.equal(listEnvOverrides(p.id).some((e) => e.key === 'DEVSYNC_PORT'), false)
+    db.exec(`CREATE TEMP TRIGGER reject_snapshot_update BEFORE INSERT ON env_overrides WHEN NEW.project_id = ${p.id} AND NEW.key = 'DEVSYNC_HOST' BEGIN SELECT RAISE(ABORT, 'test update failure'); END`)
+    assert.throws(() => saveConfiguration(p.id, { DEVSYNC_HOST: 'new-host', DEVSYNC_PASSWORD: 'new-secret' }), /test update failure/)
+    assert.equal(effectiveEnv(p.id, 'ftp').values.DEVSYNC_HOST, 'original-host')
+    assert.equal(getSecrets(p.id).DEVSYNC_PASSWORD, 'original-secret')
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS reject_snapshot_update')
+    deleteProject(p.id)
+    fs.rmSync(p.localPath, { recursive: true, force: true })
+  }
+})
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-proj-'))
 const freshTmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-proj-'))

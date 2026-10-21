@@ -24,7 +24,12 @@ export class SftpTransport {
     } else {
       opts.password = this.creds.password
     }
-    await c.connect(opts)
+    try {
+      await c.connect(opts)
+    } catch (err) {
+      await c.end().catch(() => {})
+      throw err
+    }
     this.client = c
     return this
   }

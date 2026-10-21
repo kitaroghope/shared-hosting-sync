@@ -18,11 +18,12 @@ and deployment operations. A project created through one must work in the other.
 CLI setup must not require the UI. Once `devsync ui` is launched, the UI workflow
 must not require further terminal commands.
 
-## Current gaps (20 October 2026)
+## Current gaps (21 October 2026)
 
-The CLI has deployment and watch commands, but credential setup directs users to
-the UI. The UI configures projects, tests connections, and browses remote folders,
-but does not yet expose deployment or watch controls. Full parity is required but
+As of 21 October 2026, the CLI supports `.env` onboarding, terminal-only credential
+setup, destination browsing, preview, deploy, sync, and watch. The UI configures
+projects, tests connections, and browses remote folders, but does not yet expose
+complete onboarding or deployment/watch controls. Full parity is required but
 not yet implemented.
 
 ## Setup paths
@@ -77,6 +78,6 @@ used to launch the dashboard must not supply credentials for a different project
 Users may also enter all hosting details manually without creating an `.env`.
 Projects onboarded in the UI must immediately work through the CLI and vice versa.
 
-These setup paths are requirements. The current resolver reads `.devsync.env`
-from the selected project folder and does not yet implement this `.env` onboarding.
-See PHASES.md for implementation milestones.
+The CLI setup path is implemented. Resolution reads `.env` and legacy `.devsync.env`
+from the selected project folder; explicit files and command options are supported.
+The complete UI path remains planned. See PHASES.md for implementation milestones.
