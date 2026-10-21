@@ -118,7 +118,7 @@ conflicts, crashed owners, and dashboard/CLI coordination. Locks are local to on
 machine/settings store and do not detect remote aliases or other deployment tools.
 Production-host checks and cross-platform installation remain release work.
 
-## Phase 6: npm release — 0.1.0
+## Phase 6: npm release — 0.1.0 published 21 October 2026
 
 - Package and primary command renamed to `shared-hosting-sync`; `devsync` remains
   an alias, with compatible settings and environment variables.
@@ -136,6 +136,12 @@ Production-host checks and cross-platform installation remain release work.
 - Publication requires maintainer authentication, all platform checks, and
   registry acceptance. Registry installation confirms publication; see RELEASING.md
   for the verification steps.
+
+Published [shared-hosting-sync@0.1.0](https://www.npmjs.com/package/shared-hosting-sync/v/0.1.0)
+with `latest` pointing to 0.1.0. Windows, Linux, and macOS release checks passed.
+The registry tarball matches the validated archive byte for byte (SHA-256
+`e2301a79bc1aa64f28262b929c7b57c9447dfba6c82bc2c5b56b0b476f2c6a6e`).
+A fresh registry installation verified both command aliases and SQLite startup.
 
 After release: GitHub Actions integration, deployment history, rollback, and
 optional remote deletion.
