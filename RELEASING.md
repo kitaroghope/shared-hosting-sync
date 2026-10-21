@@ -3,6 +3,9 @@
 The GitHub repository remains `kitaroghope/devsync`. The npm package and primary
 command are `shared-hosting-sync`; `devsync` is an equivalent command alias.
 Keep existing `DEVSYNC_*` variables and the settings directory compatible.
+Machines with the old global `devsync` development package should first run
+`npm uninstall -g devsync`, then install the new tarball/package. This avoids
+conflicting command shims and preserves the external settings directory.
 
 ## Prepare and validate
 

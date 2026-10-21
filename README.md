@@ -62,6 +62,19 @@ devsync help
 The SQLite database is built into Node.js; a separate database server or SQLite
 installation is not required. The dashboard stays on this computer.
 
+If you installed or linked an earlier development version named `devsync`, remove
+that global package before installing `shared-hosting-sync` to avoid a command
+name conflict:
+
+```sh
+npm uninstall -g devsync
+npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
+```
+
+This replaces the old global installation. Saved projects and credentials remain
+in `~/.devsync/` (or your configured `DEVSYNC_HOME`). After npm publication, use
+`npm install -g shared-hosting-sync` in place of the tarball command.
+
 ## Start from a project folder
 
 Define your hosting settings in the project's `.env`:
