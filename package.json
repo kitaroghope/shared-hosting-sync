@@ -23,12 +23,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kitaroghope/devsync.git"
+    "url": "git+https://github.com/kitaroghope/shared-hosting-sync.git"
   },
   "bugs": {
-    "url": "https://github.com/kitaroghope/devsync/issues"
+    "url": "https://github.com/kitaroghope/shared-hosting-sync/issues"
   },
-  "homepage": "https://github.com/kitaroghope/devsync#readme",
+  "homepage": "https://github.com/kitaroghope/shared-hosting-sync#readme",
   "bin": {
     "shared-hosting-sync": "src/bin.js",
     "devsync": "src/bin.js"

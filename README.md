@@ -6,9 +6,8 @@ choose a local folder and a server destination, then deploy or keep files in syn
 Use the terminal or a local browser dashboard. Both interfaces control the same
 projects, settings, and deployment operations.
 
-> **Release candidate:** Version 0.1.0 is being prepared for npm publication.
+> **Version 0.1.0:** Requires Node.js 24 or newer.
 > CLI and UI onboarding, previews, deployment, sync, and watching are implemented.
-> Registry installation becomes available after publication.
 
 The package name is **shared-hosting-sync**. Run it as `shared-hosting-sync` or
 use the shorter `devsync` alias shown in examples below. Both commands run the
@@ -37,7 +36,7 @@ runtime supported by the hosting provider.
 Requires **Node.js 24 or newer** and npm. Hosting credentials and access to the
 destination folder are also required.
 
-After npm publication:
+Install globally:
 
 ```sh
 npm install -g shared-hosting-sync
@@ -45,7 +44,7 @@ shared-hosting-sync --version
 shared-hosting-sync ui
 ```
 
-To install a release tarball before publication:
+Alternatively, install a locally built release tarball:
 
 ```sh
 npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
@@ -72,7 +71,7 @@ npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
 ```
 
 This replaces the old global installation. Saved projects and credentials remain
-in `~/.devsync/` (or your configured `DEVSYNC_HOME`). After npm publication, use
+in `~/.devsync/` (or your configured `DEVSYNC_HOME`). For registry installation, use
 `npm install -g shared-hosting-sync` in place of the tarball command.
 
 ## Start from a project folder
@@ -358,27 +357,6 @@ FTPS certificates must pass normal certificate verification. Self-signed or
 expired hosting certificates need correction or an appropriately trusted CA;
 devsync does not silently bypass verification.
 
-## Current implementation
-
-The package is in development. Before relying on it for deployments:
-
-- CLI onboarding, `.env` discovery, hidden password prompts, server-folder
-  selection, and `deploy` are implemented in Phase 2.
-- Phase 4 adds UI upload previews, deploy/sync, watch start/stop, progress, and
-  actionable file errors through the shared deployment engine.
-- Phase 5 adds shared CLI/UI locks, transient connection recovery, watch retries,
-  exclusion previews in the CLI, and real local FTPS/SFTP integration checks.
-- Phase 3 adds complete UI onboarding, local/server folder pickers, secure
-  imported settings, and reviewed project saving.
-- Phase 1 fixes destination handling, same-size change detection, path validation,
-  and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
-- Phase 6 prepares `shared-hosting-sync@0.1.0`, including production-only packaging,
-  global installation checks, and Windows/Linux/macOS release checks in CI.
-  Publication requires npm account authentication and final registry acceptance.
-
-See [PRODUCT.md](PRODUCT.md) for product requirements and [ROADMAP.md](ROADMAP.md)
-for historical design notes. PHASES.md tracks the current release sequence.
-
 ## Development
 
 ```sh
@@ -401,6 +379,18 @@ command names, onboarding, FTP deploy/sync, and dashboard assets from another
 directory. It writes a tarball, manifest, and SHA-256 checksum to `artifacts/`.
 Tests, fixtures, development scripts, local state, and credentials are excluded
 from the published package. See [RELEASING.md](RELEASING.md) for the release process.
+
+## Buy me a coffee ☕
+
+If shared-hosting-sync saves you time, consider buying me a coffee. Your support
+helps keep the project growing.
+
+You can send your support to either number:
+
+- **+256757035774**
+- **+256789291098**
+
+Thank you for supporting the project!
 
 ## License
 

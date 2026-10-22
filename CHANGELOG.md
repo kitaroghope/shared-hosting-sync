@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — release candidate
+## 0.1.0 — 21 October 2026
 
 First release of shared-hosting-sync, developed under the devsync name.
 
