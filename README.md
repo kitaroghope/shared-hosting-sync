@@ -357,27 +357,6 @@ FTPS certificates must pass normal certificate verification. Self-signed or
 expired hosting certificates need correction or an appropriately trusted CA;
 devsync does not silently bypass verification.
 
-## Current implementation
-
-The package is in development. Before relying on it for deployments:
-
-- CLI onboarding, `.env` discovery, hidden password prompts, server-folder
-  selection, and `deploy` are implemented in Phase 2.
-- Phase 4 adds UI upload previews, deploy/sync, watch start/stop, progress, and
-  actionable file errors through the shared deployment engine.
-- Phase 5 adds shared CLI/UI locks, transient connection recovery, watch retries,
-  exclusion previews in the CLI, and real local FTPS/SFTP integration checks.
-- Phase 3 adds complete UI onboarding, local/server folder pickers, secure
-  imported settings, and reviewed project saving.
-- Phase 1 fixes destination handling, same-size change detection, path validation,
-  and failed-sync status. See [PHASES.md](PHASES.md) for the implementation milestones.
-- Phase 6 prepares `shared-hosting-sync@0.1.0`, including production-only packaging,
-  global installation checks, and Windows/Linux/macOS release checks in CI.
-  See [RELEASING.md](RELEASING.md) for maintainer publication instructions.
-
-See [PRODUCT.md](PRODUCT.md) for product requirements and [ROADMAP.md](ROADMAP.md)
-for historical design notes. PHASES.md tracks the current release sequence.
-
 ## Development
 
 ```sh
