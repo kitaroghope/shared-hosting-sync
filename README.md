@@ -401,6 +401,18 @@ directory. It writes a tarball, manifest, and SHA-256 checksum to `artifacts/`.
 Tests, fixtures, development scripts, local state, and credentials are excluded
 from the published package. See [RELEASING.md](RELEASING.md) for the release process.
 
+## Buy me a coffee ☕
+
+If shared-hosting-sync saves you time, consider buying me a coffee. Your support
+helps keep the project growing.
+
+You can send your support to either number:
+
+- **+256757035774**
+- **+256789291098**
+
+Thank you for supporting the project!
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
