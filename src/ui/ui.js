@@ -118,7 +118,7 @@ function renderWizard() {
   renderedStep = step
   let content = ''
   if (step === 1) {
-    content = `<h2>Where are your project files?</h2><p>Choose the folder you want to deploy. For a built frontend, choose its dist or build folder.</p><form id="localForm"><div class="field"><label for="localPath">Local project folder</label><div class="path-row"><input id="localPath" value="${esc(draft?.localPath || '')}" placeholder="Absolute path to a project folder" ${draft?.projectId ? 'readonly' : ''}><button class="secondary" type="button" id="openLocal" ${draft?.projectId ? 'disabled' : ''}>Browse folders</button></div><span class="help">Only hosting settings named DEVSYNC_* are read from this folder’s .env.</span></div><div id="localPicker"></div><div class="actions"><button class="secondary" type="button" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" type="submit">Continue to hosting</button></div></form>`
+    content = `<h2>Where are your project files?</h2><p>Choose the folder you want to deploy. For a built frontend, choose its dist or build folder.</p><form id="localForm"><div class="field"><label for="localPath">Local project folder</label><div class="path-row"><input id="localPath" value="${esc(draft?.localPath || '')}" placeholder="Absolute path to a project folder"><button class="secondary" type="button" id="openLocal">Browse folders</button></div><span class="help">Only hosting settings named DEVSYNC_* are read from this folder’s .env.</span></div><div id="localPicker"></div><div class="actions"><button class="secondary" type="button" id="cancelSetup">Cancel</button><span class="spacer"></span><button class="primary" type="submit">Continue to hosting</button></div></form>`
   } else if (step === 2) {
     const transport = draft.values.DEVSYNC_TRANSPORT
     const loaded = Object.entries(draft.sources).filter(([, value]) => value === '.env' || value === '.devsync.env').length
@@ -139,7 +139,7 @@ function renderWizard() {
       const localPath = $('#localPath').value.trim()
       if (!localPath) throw new Error('Choose a local project folder first')
       if (!draft || localPath !== draft.localPath) {
-        const loaded = await api('POST', '/api/onboarding', { localPath })
+        const loaded = await api('POST', '/api/onboarding', { localPath, ...(draft?.projectId ? { projectId: draft.projectId } : {}) })
         if (draft) try { await api('DELETE', `/api/onboarding/${draft.id}`) } catch {}
         state.draft = loaded
         state.fileOverrides = false
@@ -255,7 +255,7 @@ async function openProject(id) {
   const values = config.values
   $('#pane').innerHTML = `<p class="eyebrow">SAVED PROJECT</p><div class="summary-head"><div><h1>${esc(data.label)}</h1><p class="sub">${esc(data.localPath)}</p></div><span class="ready">● ${Object.keys(config.errors).length ? 'Setup needed' : 'Project configured'}</span></div><div id="message" class="notice"></div><section class="summary-card"><h2>Source → destination</h2><dl class="review"><dt>Local source</dt><dd>${esc(data.localPath)}</dd><dt>Server folder</dt><dd>${esc(values.DEVSYNC_REMOTE_PATH || 'Not configured')}</dd><dt>Connection</dt><dd>${esc(values.DEVSYNC_TRANSPORT?.toUpperCase())} · ${esc(values.DEVSYNC_HOST || 'Not configured')}:${esc(values.DEVSYNC_PORT)}</dd><dt>Username</dt><dd>${esc(values.DEVSYNC_USERNAME || 'Not configured')}</dd><dt>Credentials</dt><dd>${config.secrets.DEVSYNC_PASSWORD || config.secrets.DEVSYNC_PRIVATE_KEY ? 'Supplied · never shown in this browser' : 'Not configured'}</dd></dl><div class="actions"><button class="primary" id="editProject">Edit setup</button><button class="secondary" id="testProject">Test connection</button><span class="spacer"></span><button class="danger" id="deleteProject">Remove project</button></div></section>`
   if (Object.keys(config.errors).length) message(Object.values(config.errors).join('; '), 'warning')
-  $('#editProject').onclick = () => act(async () => { state.draft = await api('POST', '/api/onboarding', { projectId: id }); deploymentPanel.close(); state.fileOverrides = false; state.step = 2; renderWizard() })
+  $('#editProject').onclick = () => act(async () => { state.draft = await api('POST', '/api/onboarding', { projectId: id }); deploymentPanel.close(); state.fileOverrides = false; state.local = null; state.remote = null; state.verifiedPath = null; state.step = 1; renderWizard() })
   $('#testProject').onclick = () => act(async () => { await api('POST', '/api/test', { projectId: id }); message('Connection test passed.', 'success') }, 'Testing your hosting connection…')
   $('#deleteProject').onclick = () => act(async () => {
     if (!confirm(`Remove "${data.label}" from devsync? Local and server files stay in place.`)) return

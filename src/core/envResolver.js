@@ -12,7 +12,7 @@ const present = (value) => value !== undefined && value !== null && value !== ''
 
 export function resolveEnv(projectId, { transport = 'sftp', envFile, localPath, overrides = {}, useEnvFileEnvironment = true } = {}) {
   const project = projectId == null ? null : getProject(projectId)
-  localPath = project?.localPath || localPath
+  localPath = localPath || project?.localPath
   if (!localPath) throw new Error('A local project folder is required')
   const values = { ...defaultsFor(transport) }
   const sources = Object.fromEntries(ENV_SCHEMA.map((s) => [s.key, 'default']))

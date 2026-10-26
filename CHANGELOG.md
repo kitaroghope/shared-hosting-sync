@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — 26 October 2026
+
+- Fix dashboard “Edit setup” so saved projects can change their local folder,
+  including after the original folder has moved.
+- Retain the existing project, saved credentials, and server destination when
+  changing folders, and load environment settings from the replacement folder.
+- Reject replacement folders already assigned to another project.
+
 ## 0.1.0 — 21 October 2026
 
 First release of shared-hosting-sync, developed under the devsync name.

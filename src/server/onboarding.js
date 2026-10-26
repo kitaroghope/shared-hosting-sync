@@ -72,7 +72,10 @@ export class OnboardingService {
     if (this.drafts.size >= 50) throw fail('Too many open setups. Close a setup and try again.', 429)
     let project = projectId ? getProject(Number(projectId)) : null
     if (projectId && !project) throw fail('Project not found', 404)
-    const folder = assertLocalFolder(project?.localPath || localPath)
+    // An existing project can be repaired even after its original folder moved.
+    const folder = project && localPath === undefined ? project.localPath : assertLocalFolder(localPath)
+    const owner = getProjectByLocalPath(folder)
+    if (project && owner && owner.id !== project.id) throw fail('That local folder belongs to another project', 409)
     project ||= getProjectByLocalPath(folder)
     this.ensureEditable(project?.id)
     const resolved = resolveEnv(project?.id, { localPath: folder, useEnvFileEnvironment: false })
@@ -164,6 +167,8 @@ export class OnboardingService {
       label = label.trim()
       const duplicate = getProjectByLabel(label)
       if (duplicate && duplicate.id !== draft.projectId) throw fail('That project name is already in use', 409)
+      const owner = getProjectByLocalPath(draft.localPath)
+      if (owner && owner.id !== draft.projectId) throw fail('That local folder belongs to another project', 409)
       const errors = ENV_SCHEMA.map((schema) => settingError(schema.key, draft.values[schema.key], draft.values)).filter(Boolean)
       if (errors.length) throw fail(errors.join('; '))
       if (!draft.tested) throw fail('Test the connection before saving', 409)
@@ -179,7 +184,7 @@ export class OnboardingService {
         project ||= createProject({ label, localPath: draft.localPath })
         mutateProject(project.id, () => {
           saveConfiguration(project.id, draft.values, { sources: draft.sources })
-          if (project.label !== label) updateProject(project.id, { label })
+          updateProject(project.id, { label, local_path: draft.localPath })
         })
       } catch (error) {
         if (created && project) deleteProject(project.id)
