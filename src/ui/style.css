@@ -127,3 +127,15 @@ h1{font-size:25px}
 .operation-metrics>div{padding:14px;background:#10161f;border:1px solid var(--line);border-radius:8px}.operation-metrics strong{display:block;font-size:21px}.operation-metrics span{font-size:12px;color:var(--muted)}
 .plan-table-wrap{max-height:300px;overflow:auto;margin:14px 0}.plan-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}.plan-table th,.plan-table td{padding:10px;border-bottom:1px solid var(--line);word-break:break-word}.plan-table th{color:var(--muted);position:sticky;top:0;background:var(--panel)}.plan-table td:last-child{white-space:nowrap}
 .file-list{font:12px/1.7 ui-monospace,monospace;max-height:220px;overflow:auto;padding:0 0 0 20px;word-break:break-word}.operation-log{font:12px/1.8 ui-monospace,monospace;max-height:260px;overflow:auto;list-style:none;padding:12px;background:#0e131c;border-radius:6px}.operation-log time{color:var(--muted)}.log-error{color:var(--danger)}.log-success{color:var(--accent)}
+
+.about-help-button{width:100%;margin-top:24px;text-align:left}
+.about-help-dialog{color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(820px,calc(100% - 32px));max-height:88vh;padding:30px;overflow:auto;scroll-behavior:smooth}
+.about-help-dialog::backdrop{background:rgba(0,0,0,.72)}
+.about-help-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.about-help-heading form{margin:0}.about-help-heading h1{margin-bottom:10px}
+.help-links{display:flex;flex-wrap:wrap;gap:12px 22px}
+.help-links a{text-underline-offset:4px}
+.help-steps{padding-left:22px;margin-bottom:0}.help-steps li{padding-left:6px;margin:14px 0;color:var(--muted)}.help-steps strong{color:var(--text)}
+.about-help-dialog section{scroll-margin-top:16px}.about-help-dialog details p{margin:12px 0 0;color:var(--muted)}
+.about-help-dialog code{color:var(--accent);overflow-wrap:anywhere}.about-help-footer{margin:24px 0 0}
+@media(max-width:580px){.about-help-dialog{padding:20px;max-height:92vh}.about-help-dialog .summary-card{padding:18px}.about-help-button{margin-top:10px}.about-help-dialog .review{margin:18px 0}}

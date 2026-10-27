@@ -274,6 +274,16 @@ async function openProject(id) {
   setBusy(state.busy)
 }
 
+$('#openAboutHelp').onclick = async () => {
+  const dialog = $('#aboutHelpDialog')
+  if (dialog.open) return
+  dialog.showModal()
+  try {
+    const health = await api('GET', '/api/health')
+    $('#aboutVersion').textContent = `· v${health.version}`
+  } catch { $('#aboutVersion').textContent = '· Version unavailable' }
+}
+
 $('#addProject').onclick = () => act(startNew)
 ;(async () => {
   try {

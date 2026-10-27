@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 — 27 October 2026
+
+- Add a styled console startup banner with app version and creator contact details,
+  terminal-aware colors, and a compact layout for narrow terminals.
+- Add a dedicated dashboard About & Help section with creator details, the running
+  version, setup guidance, troubleshooting, and documentation links.
+- Keep unfinished project setup intact while About & Help is open.
+
 ## 0.1.1 — 26 October 2026
 
 - Fix dashboard “Edit setup” so saved projects can change their local folder,

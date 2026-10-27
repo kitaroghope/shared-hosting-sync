@@ -494,9 +494,40 @@ ${C.b('other')}
   }
 }
 
+function printBanner() {
+  const color = process.stdout.isTTY && !('NO_COLOR' in process.env)
+  const paint = (style, value) => color ? style(value) : value
+  const lines = [
+    ['DEVSYNC', C.b],
+    [`Shared hosting sync  /  v${version}`, C.c],
+    ['', C.dim],
+    ['Local projects → your hosting', C.dim],
+    ['', C.dim],
+    ['Created by Rogers Kitamirike', C.b],
+    ['Ugandan developer', C.dim],
+    ['', C.dim],
+    ['Phone  +256757035774', C.c],
+    ['Email  kitarogz@gmail.com', C.c]
+  ]
+  const width = 46
+  console.log()
+  if (process.stdout.columns && process.stdout.columns < width + 6) {
+    for (const [line, style] of lines) console.log(paint(style, line))
+  } else {
+    const border = (line) => paint(C.c, line)
+    console.log(border('  ╭' + '─'.repeat(width + 2) + '╮'))
+    for (const [line, style] of lines) {
+      console.log(border('  │ ') + paint(style, line) + ' '.repeat(width - line.length) + border(' │'))
+    }
+    console.log(border('  ╰' + '─'.repeat(width + 2) + '╯'))
+  }
+  console.log()
+}
+
 async function main() {
   try {
     if (flags.version || cmd === 'version') { console.log(`${name} ${version}`); return }
+    printBanner()
     if (flags.help || cmd === 'help') return COMMANDS.help()
     if (!cmd) return flags.sync ? await COMMANDS.sync() : await COMMANDS.plan()
     if (!Object.hasOwn(COMMANDS, cmd)) throw new Error(`unknown command: ${cmd}. Run devsync help`)
