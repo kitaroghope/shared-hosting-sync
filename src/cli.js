@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createTransport } from './transport/index.js'
 import { buildMatcher, ensureDeployignore } from './ignore.js'
-import { buildPlan, runPlan } from './uploader.js'
+import { buildPlan, runPlan, scanServer } from './uploader.js'
 import { ProjectWatcher } from './watcher.js'
 import { openDb } from './core/db.js'
 import { maybeRunV1Import } from './core/v1Migrate.js'
@@ -136,7 +136,7 @@ async function credsForProject(project, { deployment = false } = {}) {
     const context = resolveDeployment(project, {
       envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
     })
-    project.remotePath = context.project.remotePath
+    Object.assign(project, context.project)
     return { ...context.creds, dryRun: context.dryRun, debounceMs: context.debounceMs }
   }
   const r = resolveEnv(project.id, {
@@ -271,8 +271,7 @@ const COMMANDS = {
     const release = acquireOperation(proj.id, 'preview', { creds, remotePath: proj.remotePath })
     let t
     try {
-      t = await createTransport(creds, flags.transport, { onRetry: retryNotice })
-      const p = await buildPlan(proj, matcher, t, { force: !!flags.force })
+      const p = await buildPlan(proj, matcher, null, { force: !!flags.force })
       console.log()
       console.log(C.b(`Plan for "${proj.label}"`) + C.dim(`  ${proj.localPath} → ${proj.remotePath}`))
       console.log(
@@ -317,8 +316,7 @@ const COMMANDS = {
     const dryRun = creds.dryRun || !!flags['dry-run'] || !!flags.plan
 
     try {
-      t = await createTransport(creds, undefined, { onRetry: retryNotice })
-      const p = await buildPlan(proj, matcher, t, { force })
+      const p = await buildPlan(proj, matcher, null, { force })
       console.log()
       console.log(C.b(`${cmd === 'deploy' ? 'Deploy' : 'Sync'} "${proj.label}"`) + C.dim(`  ${p.uploads.length} file(s) · ${mb(p.comparedBytes)}`))
       if (dryRun) {
@@ -333,6 +331,7 @@ const COMMANDS = {
         setStatus(proj.id, 'idle')
         return
       }
+      t = await createTransport(creds, undefined, { onRetry: retryNotice })
       let lastPct = -1
       const r = await runPlan(p, t, {
         dryRun,
@@ -360,6 +359,25 @@ const COMMANDS = {
     } finally {
       try { if (t) await t.close() } finally { release() }
     }
+  },
+
+  async scan() {
+    openAndMigrate()
+    const proj = await resolveProjectOrCwd(positional[0])
+    const creds = await credsForProject(proj, { deployment: true })
+    if (!flags.confirm) {
+      if (!prompt.interactive) throw new Error('Server scan needs confirmation. Use devsync scan [label] --confirm for first-time sync.')
+      const answer = await prompt.ask({ label: 'Are you sure? Use this button only if you are syncing for the first time. This scan reads server files and rebuilds the sync baseline without uploading. Continue (yes/no)', defaultValue: 'no' })
+      if (answer.trim().toLowerCase() !== 'yes') { info('Server scan cancelled'); return }
+    }
+    const release = acquireOperation(proj.id, 'scan', { creds, remotePath: proj.remotePath })
+    let transport
+    try {
+      transport = await createTransport(creds, undefined, { onRetry: retryNotice })
+      const plan = await scanServer(proj, buildMatcher(proj.localPath), transport)
+      ok(`Server scan complete: ${plan.skipped.length} matching, ${plan.uploads.length} new or changed. No files uploaded.`)
+      info(`Next: devsync sync ${proj.label}`)
+    } finally { try { if (transport) await transport.close() } finally { release() } }
   },
 
   async watch() {
@@ -473,7 +491,8 @@ ${C.b('per-project')}
   devsync ls [label] [remotePath]      browse the remote
   devsync plan [label]                 preview, no upload
   devsync deploy [label]               upload all eligible files
-  devsync sync [label]                 upload changed files
+  devsync sync [label]                 upload changes using the saved database baseline
+  devsync scan [label]                 first-time server scan (asks for confirmation)
   devsync watch [label]                continuous, debounced
 
 ${C.b('options')}
@@ -484,6 +503,7 @@ ${C.b('options')}
   --edit                              setup: edit connection settings
   --browse                            setup: choose a different server folder
   --label <name>                       name a new project
+  --confirm                           confirm a first-time server scan
   --dry-run --force                    preview / include unchanged files
 
 ${C.b('other')}

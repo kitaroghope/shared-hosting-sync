@@ -2,7 +2,8 @@ import crypto from 'node:crypto'
 import { getProject, setStatus, recordSync } from '../core/projects.js'
 import { resolveDeployment } from '../core/deployment.js'
 import { createTransport } from '../transport/index.js'
-import { buildPlan, runPlan } from '../uploader.js'
+import { syncStatus } from '../core/syncState.js'
+import { buildPlan, runPlan, scanServer } from '../uploader.js'
 import { ProjectWatcher } from '../watcher.js'
 import { acquireOperation, assertProjectIdle, projectOperation } from '../core/operationLock.js'
 
@@ -36,7 +37,10 @@ export class DeploymentService {
       projectId: project.id, kind: null, state: 'idle', phase: 'idle', logs: [], plan: null,
       result: null, progress: null, lastError: project.lastStatus === 'error' ? project.lastError : null
     }
+    let baseline = null
+    try { baseline = syncStatus(resolveDeployment(project, { useEnvFileEnvironment: false }).project.syncScope) } catch {}
     return structuredClone({
+      baseline,
       ...view, active: this.isBusy(project.id), externalOperation: !this.isBusy(project.id) ? projectOperation(project.id) : null,
       watching: !!(record?.watcher || record?.view.kind === 'watch' && record?.task),
       stopping: !!record?.stopping, lastSyncAt: project.lastSyncAt, lastUploadBytes: project.lastUploadBytes
@@ -104,15 +108,16 @@ export class DeploymentService {
 
   start(id, kind, options = {}) {
     if (this.closing) throw fail('The dashboard is shutting down', 503)
-    if (!['preview', 'deploy', 'sync', 'watch'].includes(kind)) throw fail('Unknown deployment operation')
+    if (!['preview', 'deploy', 'sync', 'watch', 'scan'].includes(kind)) throw fail('Unknown deployment operation')
     if (!options || typeof options !== 'object' || Array.isArray(options)) throw fail('Operation options must be an object')
+    if (kind === 'scan' && options.confirmed !== true) throw fail('Confirm the first-time server scan before continuing')
     if (options.dryRun !== undefined && typeof options.dryRun !== 'boolean') throw fail('dryRun must be a boolean')
     if (options.mode !== undefined && !['sync', 'deploy'].includes(options.mode)) throw fail('Preview mode must be sync or deploy')
     const project = getProject(Number(id))
     if (!project) throw fail('Project not found', 404)
     if (this.isBusy(project.id)) throw fail('This project already has an operation running. Stop watching or wait for it to finish.', 409)
     const context = resolveDeployment(project, { useEnvFileEnvironment: false })
-    const dryRun = kind === 'preview' || context.dryRun || !!options.dryRun
+    const dryRun = kind === 'scan' || kind === 'preview' || context.dryRun || !!options.dryRun
     const release = acquireOperation(project.id, kind, { creds: context.creds, remotePath: context.project.remotePath })
     const record = {
       context, release, task: null, watcher: null, transport: null, stopping: null, stopRequested: false,
@@ -138,12 +143,29 @@ export class DeploymentService {
   }
 
   async execute(record) {
-    record.transport = await this.connect(record.context.creds, undefined, {
-      onRetry: ({ attempt, retries }) => this.log(record, `Connection interrupted; reconnecting (${attempt}/${retries})`, 'warning')
-    })
+    const connect = async () => {
+      record.view.phase = 'connecting'
+      record.transport = await this.connect(record.context.creds, undefined, {
+        onRetry: ({ attempt, retries }) => this.log(record, `Connection interrupted; reconnecting (${attempt}/${retries})`, 'warning')
+      })
+    }
     if (record.stopRequested || this.closing) return
     const context = record.context
+    if (record.view.kind === 'scan') {
+      await connect()
+      const plan = await scanServer(context.project, context.matcher, record.transport, { onProgress: (event) => this.progress(record, event) })
+      this.plan(record, plan)
+      record.view.result = { uploaded: 0, planned: plan.uploads.length, failed: [], failedCount: 0, bytes: 0, dryRun: true, scanned: plan.totalFiles, matched: plan.skipped.length }
+      record.view.state = 'success'
+      record.view.phase = 'complete'
+      record.view.progress = { current: plan.totalFiles, total: plan.totalFiles, file: null, bytes: 0 }
+      setStatus(record.view.projectId, 'idle')
+      this.log(record, `Server scan complete: ${plan.skipped.length} matching files saved; ${plan.uploads.length} new or changed. No files uploaded. Use Sync changes next.`, 'success')
+      return
+    }
     if (record.view.kind === 'watch') {
+      await connect()
+      if (record.stopRequested || this.closing) return
       const watcher = this.watcherFactory(context.project, context.matcher, record.transport, {
         dryRun: record.view.dryRun, debounceMs: context.debounceMs,
         onProgress: (event) => this.progress(record, event),
@@ -171,6 +193,7 @@ export class DeploymentService {
       force: record.view.mode === 'deploy', onProgress: (event) => this.progress(record, event)
     })
     this.plan(record, plan)
+    if (!record.view.dryRun && plan.uploads.length) await connect()
     const result = await runPlan(plan, record.transport, {
       dryRun: record.view.dryRun,
       onProgress: (event) => this.progress(record, event), onFileResult: (event) => this.fileResult(record, event)

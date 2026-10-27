@@ -274,18 +274,28 @@ async function openProject(id) {
   setBusy(state.busy)
 }
 
+async function loadAppInfo() {
+  const badge = $('#aboutVersion')
+  badge.textContent = 'Loading version…'
+  try {
+    const response = await fetch('/api/health', { cache: 'no-store' })
+    const health = await response.json()
+    if (!response.ok || typeof health.version !== 'string' || !health.version.trim()) throw new Error('Version unavailable')
+    badge.textContent = `v${health.version}`
+    if (typeof health.name === 'string' && health.name.trim()) $('#aboutPackage').textContent = health.name
+  } catch { badge.textContent = 'Version unavailable' }
+}
+
 $('#openAboutHelp').onclick = async () => {
   const dialog = $('#aboutHelpDialog')
   if (dialog.open) return
   dialog.showModal()
-  try {
-    const health = await api('GET', '/api/health')
-    $('#aboutVersion').textContent = `· v${health.version}`
-  } catch { $('#aboutVersion').textContent = '· Version unavailable' }
+  await loadAppInfo()
 }
 
 $('#addProject').onclick = () => act(startNew)
 ;(async () => {
+  void loadAppInfo()
   try {
     await refreshProjects()
     $('#serverStatus').textContent = '● Running locally'

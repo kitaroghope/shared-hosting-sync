@@ -193,3 +193,40 @@ test('watch can be stopped while its connection is still opening', async () => {
     assert.equal(transport.calls.filter((call) => call.method === 'close').length, 1)
   } finally { release(); await service.close() }
 })
+
+test('initial scan requires confirmation, performs no uploads, and seeds a persistent baseline', async () => {
+  const saved = project('initial-scan')
+  const endpoint = `/api/projects/${saved.id}`
+  const remoteDir = path.join(ftp.rootDir, 'public_html', 'initial-scan')
+  fs.mkdirSync(remoteDir, { recursive: true })
+  fs.writeFileSync(path.join(remoteDir, 'index.html'), 'old!')
+  fs.writeFileSync(path.join(remoteDir, 'server-only.txt'), 'keep me')
+  await api('POST', endpoint + '/scan', {}, 400)
+  await api('POST', endpoint + '/scan', { confirmed: 'true' }, 400)
+  const unauthorized = await fetch(new URL(endpoint + '/scan', app.url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmed: true }) })
+  assert.equal(unauthorized.status, 401)
+  const before = fs.statSync(path.join(remoteDir, 'index.html')).mtimeMs
+  await api('POST', endpoint + '/scan', { confirmed: true }, 202)
+  const scan = await done(saved.id)
+  assert.equal(scan.state, 'success')
+  assert.equal(scan.result.scanned, 1)
+  assert.equal(scan.result.matched, 1)
+  assert.equal(scan.result.uploaded, 0)
+  assert.equal(scan.lastSyncAt, null)
+  assert.equal(scan.baseline.trackedFiles, 1)
+  assert.ok(scan.baseline.scannedAt)
+  assert.equal(fs.statSync(path.join(remoteDir, 'index.html')).mtimeMs, before)
+  assert.equal(fs.readFileSync(path.join(remoteDir, 'server-only.txt'), 'utf8'), 'keep me')
+  let connects = 0
+  const restarted = new DeploymentService({ connect: async () => { connects++; throw new Error('No remote connection should be opened') } })
+  try {
+    restarted.start(saved.id, 'sync')
+    await until(async () => restarted.activity(saved.id), value => !value.active)
+    assert.equal(restarted.activity(saved.id).state, 'success')
+    assert.equal(restarted.activity(saved.id).result.uploaded, 0)
+    restarted.start(saved.id, 'preview')
+    await until(async () => restarted.activity(saved.id), value => !value.active)
+    assert.equal(restarted.activity(saved.id).plan.skippedCount, 1)
+    assert.equal(connects, 0)
+  } finally { await restarted.close() }
+})

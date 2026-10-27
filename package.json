@@ -1,6 +1,6 @@
 {
   "name": "shared-hosting-sync",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Deploy and sync local projects to shared hosting over FTP, FTPS, or SFTP, with a CLI and local dashboard.",
   "type": "module",
   "license": "MIT",
@@ -49,7 +49,7 @@
   "scripts": {
     "start": "node src/cli.js",
     "release:check": "node scripts/release-check.js",
-    "test": "node test/ignore.test.js && node --test --test-timeout=60000 --test-concurrency=1 test/uploader.test.js test/transport-ftp.test.js test/cli-deployment.test.js test/cli-onboarding.test.js test/onboarding.test.js test/ui-onboarding.test.js test/ui-deployments.test.js test/reliability.test.js test/protocols.test.js test/transport-sftp.test.js test/watcher.test.js test/envResolver.test.js test/db.test.js test/secrets.test.js",
+    "test": "node test/ignore.test.js && node --test --test-timeout=60000 --test-concurrency=1 test/uploader.test.js test/sync-state.test.js test/transport-ftp.test.js test/cli-deployment.test.js test/cli-onboarding.test.js test/onboarding.test.js test/ui-onboarding.test.js test/ui-deployments.test.js test/ui-sync.test.js test/reliability.test.js test/protocols.test.js test/transport-sftp.test.js test/watcher.test.js test/envResolver.test.js test/db.test.js test/secrets.test.js",
     "prepack": "npm test",
     "prepublishOnly": "npm test"
   },

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { validateRemotePath, relativeFile } from './paths.js'
 import { hashFile } from './checksum.js'
+import { fingerprint, sameFile } from './core/fileFingerprint.js'
 import { isTransient } from './transport/reliable.js'
 
 const TMP_SUFFIX = '.devsync-uploading'
@@ -56,9 +57,9 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false, onE
 
 /**
  * Build the list of uploads without touching the network for writes.
- * Size differences upload immediately; equal sizes require a content match.
+ * Saved projects compare local metadata with SQLite. Explicit scans verify remote content.
  */
-export async function buildPlan(project, matcher, transport, { force = false, onProgress } = {}) {
+export async function buildPlan(project, matcher, transport, { force = false, scan = false, onProgress } = {}) {
   const { localPath, remotePath } = project
   validateRemotePath(remotePath)
   if (!fs.statSync(localPath).isDirectory()) throw new Error('Local source must be a directory')
@@ -68,6 +69,9 @@ export async function buildPlan(project, matcher, transport, { force = false, on
     excludedCount++
     if (excluded.length < 200) excluded.push(entry)
   } })
+  const scope = project.syncScope
+  const saved = scope && !scan ? (await import('./core/syncState.js')).readSyncFiles(scope) : null
+  const matches = []
   const uploads = []
   const skipped = []
   let comparedBytes = 0
@@ -86,12 +90,22 @@ export async function buildPlan(project, matcher, transport, { force = false, on
 
     if (onProgress) onProgress({ phase: 'planning', item: { rel, remote, bytes: localStat.size }, index, total: files.length })
 
-    const remoteStat = await transport.stat(remote)
-    if (remoteStat?.isDir) throw new Error(`Remote file destination is a directory: ${remote}`)
-    if (!force && remoteStat && remoteStat.size === localStat.size &&
-        await transport.checksum(remote) === await hashFile(abs)) {
-      skipped.push({ rel, bytes: localStat.size, reason: 'same content' })
-      continue
+    const localFingerprint = fingerprint(localStat)
+    const item = { abs, rel, remote, bytes: localStat.size, dirs: ancestorsOf(remote), fingerprint: localFingerprint }
+    if (saved) {
+      if (!force && sameFile(saved.get(rel), localFingerprint)) {
+        skipped.push({ rel, bytes: localStat.size, reason: 'unchanged since last successful sync' })
+        continue
+      }
+    } else {
+      const remoteStat = await transport.stat(remote)
+      if (remoteStat?.isDir) throw new Error(`Remote file destination is a directory: ${remote}`)
+      if (!force && remoteStat && remoteStat.size === localStat.size &&
+          await transport.checksum(remote) === await hashFile(abs)) {
+        skipped.push({ rel, bytes: localStat.size, reason: 'same content' })
+        matches.push(item)
+        continue
+      }
     }
 
     uploads.push({
@@ -99,12 +113,22 @@ export async function buildPlan(project, matcher, transport, { force = false, on
       rel,
       remote,
       bytes: localStat.size,
+      fingerprint: localFingerprint,
       dirs: ancestorsOf(remote)
     })
     comparedBytes += localStat.size
   }
 
-  return { uploads, skipped, excluded, excludedCount, totalFiles: files.length, comparedBytes }
+  return { uploads, skipped, excluded, excludedCount, totalFiles: files.length, comparedBytes, syncScope: scope, matches }
+}
+
+/** Scan server content without uploading; only confirmed matches become the baseline. */
+export async function scanServer(project, matcher, transport, options = {}) {
+  if (!project.syncScope) throw new Error('A saved project is required for a server scan')
+  const plan = await buildPlan(project, matcher, transport, { ...options, force: false, scan: true })
+  const { replaceScannedFiles } = await import('./core/syncState.js')
+  replaceScannedFiles(project.syncScope, plan.matches)
+  return plan
 }
 
 /**
@@ -147,6 +171,10 @@ export async function runPlan(plan, transport, { dryRun = false, onProgress, onF
     }
     try {
       await uploadOne(transport, item)
+      if (plan.syncScope) {
+        const { recordUploadedFile } = await import('./core/syncState.js')
+        recordUploadedFile(plan.syncScope, item)
+      }
       done.push({ rel: item.rel, bytes: item.bytes })
       bytes += item.bytes
       if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: true, dryRun: false, bytes })

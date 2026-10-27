@@ -72,9 +72,9 @@ test('migrations create project storage and operation locks', () => {
     .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     .all()
     .map((r) => r.name)
-  assert.deepEqual(tables, ['env_overrides', 'events', 'operation_locks', 'projects', 'schema_meta', 'secrets'])
+  assert.deepEqual(tables, ['env_overrides', 'events', 'operation_locks', 'projects', 'schema_meta', 'secrets', 'sync_files', 'sync_targets'])
   const v = db.prepare("SELECT value FROM schema_meta WHERE key='version'").get()
-  assert.equal(v.value, '2')
+  assert.equal(v.value, '3')
   assert.match(dbPath(), /devsync\.db$/)
 })
 

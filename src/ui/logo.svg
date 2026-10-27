@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <title>DevSync</title>
+  <rect x="1" y="1" width="62" height="62" rx="17" fill="#142724" stroke="#32554D" stroke-width="2"/>
+  <path d="M17 26C20 17 29 12 38 15C41 16 44 18 46 21M46 12V22H36" stroke="#77D6C1" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M47 38C44 47 35 52 26 49C23 48 20 46 18 43M18 52V42H28" stroke="#A4C7FF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M25 27L30 32L25 37M35 37H41" stroke="#E7EDF6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

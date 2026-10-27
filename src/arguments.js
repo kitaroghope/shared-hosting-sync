@@ -1,5 +1,5 @@
 const VALUE_FLAGS = new Set(['transport', 'env-file', 'remote-path', 'host', 'username', 'port', 'label', 'path'])
-const BOOL_FLAGS = new Set(['dry-run', 'force', 'plan', 'sync', 'edit', 'browse', 'browser', 'help', 'version'])
+const BOOL_FLAGS = new Set(['confirm', 'dry-run', 'force', 'plan', 'sync', 'edit', 'browse', 'browser', 'help', 'version'])
 
 export function parseArgs(argv) {
   let command

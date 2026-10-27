@@ -112,7 +112,7 @@ export async function handle(req, res, { onboarding, deployments } = {}) {
   // All routes below need auth.
   if (!sessionOk(req, res)) return
 
-  const deploymentMatch = url.pathname.match(/^\/api\/projects\/(\d+)\/(activity|preview|deploy|sync|watch)(\/stop)?$/)
+  const deploymentMatch = url.pathname.match(/^\/api\/projects\/(\d+)\/(activity|preview|deploy|sync|watch|scan)(\/stop)?$/)
   if (deploymentMatch) {
     if (!deployments) return json(res, 503, { error: 'Deployment service is unavailable' })
     const [, id, action, stop] = deploymentMatch

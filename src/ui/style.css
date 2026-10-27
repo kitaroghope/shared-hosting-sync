@@ -8,8 +8,7 @@ button:disabled{opacity:.5;cursor:default}
 button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 a{color:var(--blue)}
 .topbar{height:70px;display:flex;align-items:center;gap:28px;padding:0 28px;border-bottom:1px solid var(--line)}
-.brand{font-size:24px;font-weight:750;letter-spacing:-1px;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:7px}
-.brand-dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.brand{font-size:24px;font-weight:750;letter-spacing:-1px;text-decoration:none;color:var(--text);display:flex;align-items:center;gap:11px}
 .topbar-note{color:var(--muted);font-size:13px}
 .connection-pill{margin-left:auto;border:1px solid #33554e;border-radius:30px;padding:4px 12px;color:var(--accent);font-size:12px}
 .layout{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:calc(100vh - 70px)}
@@ -139,3 +138,10 @@ h1{font-size:25px}
 .about-help-dialog section{scroll-margin-top:16px}.about-help-dialog details p{margin:12px 0 0;color:var(--muted)}
 .about-help-dialog code{color:var(--accent);overflow-wrap:anywhere}.about-help-footer{margin:24px 0 0}
 @media(max-width:580px){.about-help-dialog{padding:20px;max-height:92vh}.about-help-dialog .summary-card{padding:18px}.about-help-button{margin-top:10px}.about-help-dialog .review{margin:18px 0}}
+
+.sync-baseline{border:1px solid var(--line);border-radius:8px;padding:16px;margin:20px 0;background:#10161f}.sync-baseline p:last-child{margin:12px 0 0}
+
+.brand-logo{display:block;flex:none}.brand-accent{color:var(--accent)}.brand{white-space:nowrap}.about-brand{display:flex;align-items:center;gap:12px;font-size:27px;font-weight:750;letter-spacing:-1px;margin-bottom:24px}.about-brand img{display:block}
+@media(max-width:580px){.brand{font-size:21px;gap:9px}.brand-logo{width:34px;height:34px}.topbar{gap:12px}.connection-pill{font-size:11px;padding:4px 9px}}
+
+.about-brand{flex-wrap:wrap}.app-version{font-size:12px;line-height:1.5;font-weight:600;letter-spacing:0;color:var(--accent);background:#203e38;border:1px solid #33554e;border-radius:999px;padding:3px 10px}

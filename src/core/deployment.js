@@ -1,3 +1,4 @@
+import { syncScope } from './syncState.js'
 import { resolveEnv, credsFromResolved } from './envResolver.js'
 import { assertLocalFolder } from '../onboarding.js'
 import { validateRemotePath } from '../paths.js'
@@ -11,6 +12,7 @@ export function resolveDeployment(project, options = {}) {
     ...project, localPath: assertLocalFolder(project.localPath),
     remotePath: validateRemotePath(resolved.values.DEVSYNC_REMOTE_PATH)
   }
+  target.syncScope = syncScope(target, credsFromResolved(resolved.values))
   return {
     project: target,
     matcher: buildMatcher(target.localPath),

@@ -213,3 +213,19 @@ That's the only DB-aware code in v2. Everything else (the UI, the daemon, the ru
 ## What I want from you
 
 A decision on each of the **five** open questions above, especially the events cap and the soft-vs-hard delete. The rest have a default I'd ship; push back on whichever feels wrong.
+## Persistent sync records (migration 003)
+
+`sync_targets` identifies a project source and destination using a SHA-256 key
+of canonical local folder, protocol, host, port, username, and server folder.
+Passwords and private keys are not included. It stores the last explicit scan time.
+
+`sync_files` stores each relative path, local byte size, modification time, change
+time, and record timestamp. Its composite foreign key references `sync_targets`;
+project removal cascades through both tables. Existing project and credential rows
+are unchanged by migration 003.
+
+Normal sync and watch compare local metadata to these records. Successful atomic
+uploads update individual rows only if the local file remained unchanged during
+the transfer. Preview and failed uploads do not mark files as synchronized.
+An explicit read-only server scan replaces a destination's records atomically with
+verified matching files; an incomplete scan preserves the previous baseline.

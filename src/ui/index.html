@@ -3,32 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>shared-hosting-sync · Projects</title>
+  <title>DevSync · Projects</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/ui.js"></script>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="/">shared-hosting-sync<span class="brand-dot"></span></a><span class="topbar-note">Your projects. Your hosting.</span><span class="connection-pill" id="serverStatus">Connecting…</span></header>
+  <header class="topbar"><a class="brand" href="/" aria-label="DevSync home"><img class="brand-logo" src="/logo.svg" width="40" height="40" alt=""><span>Dev<span class="brand-accent">Sync</span></span></a><span class="topbar-note">Your projects. Your hosting.</span><span class="connection-pill" id="serverStatus">Connecting…</span></header>
   <div class="layout">
     <aside class="sidebar"><div class="sidebar-heading">PROJECTS <span id="projectCount">0</span></div><div id="projectList"></div><button class="add-project" id="addProject">+ Add project</button><button class="about-help-button secondary" id="openAboutHelp" aria-haspopup="dialog">About &amp; Help</button><div class="sidebar-note">Runs on this computer.<br>Hosting credentials stay local.</div></aside>
     <main id="pane" class="pane" aria-live="polite"><div class="empty">Loading your projects…</div></main>
   </div>
   <dialog id="aboutHelpDialog" class="about-help-dialog" aria-labelledby="aboutHelpTitle">
-    <div class="about-help-heading"><div><p class="eyebrow">DEVSYNC</p><h1 id="aboutHelpTitle">About &amp; Help</h1></div><form method="dialog"><button class="secondary" aria-label="Close About and Help" autofocus>Close</button></form></div>
+    <div class="about-help-heading"><div><div class="about-brand"><img src="/logo.svg" width="52" height="52" alt=""><span>Dev<span class="brand-accent">Sync</span></span><span class="app-version" id="aboutVersion" role="status">Loading version…</span></div><p class="eyebrow">ABOUT THE APP</p><h1 id="aboutHelpTitle">About &amp; Help</h1></div><form method="dialog"><button class="secondary" aria-label="Close About and Help" autofocus>Close</button></form></div>
     <p class="sub">A simpler way to move local projects to your hosting.</p>
     <nav class="help-links" aria-label="About and help sections"><a href="#aboutCreator">About</a><a href="#gettingStarted">Getting started</a><a href="#commonQuestions">Common questions</a></nav>
     <section class="summary-card" id="aboutCreator" aria-labelledby="creatorTitle">
       <p class="eyebrow">MEET THE CREATOR</p><h2 id="creatorTitle">Rogers Kitamirike</h2><p class="muted">Ugandan developer · Creator of DevSync</p>
-      <dl class="review"><dt>Phone</dt><dd><a href="tel:+256757035774">+256757035774</a></dd><dt>Email</dt><dd><a href="mailto:kitarogz@gmail.com">kitarogz@gmail.com</a></dd><dt>Package</dt><dd>shared-hosting-sync <span id="aboutVersion"></span></dd></dl>
+      <dl class="review"><dt>Phone</dt><dd><a href="tel:+256757035774">+256757035774</a></dd><dt>Email</dt><dd><a href="mailto:kitarogz@gmail.com">kitarogz@gmail.com</a></dd><dt>Package</dt><dd id="aboutPackage">shared-hosting-sync</dd></dl>
       <div class="help-links"><a href="https://github.com/kitaroghope/shared-hosting-sync#readme" target="_blank" rel="noopener noreferrer">Documentation ↗</a><a href="https://github.com/kitaroghope/shared-hosting-sync/issues" target="_blank" rel="noopener noreferrer">Report an issue ↗</a></div>
     </section>
     <section class="summary-card" id="gettingStarted" aria-labelledby="gettingStartedTitle"><h2 id="gettingStartedTitle">Get your first project online</h2>
-      <ol class="help-steps"><li><strong>Add your local folder.</strong> Choose Add project, then select the folder to upload. For a built website, choose its build or dist folder.</li><li><strong>Connect your hosting.</strong> Enter your FTP, FTPS, or SFTP details, or load DEVSYNC_* settings from the folder’s .env. Test the connection to continue.</li><li><strong>Choose the server folder.</strong> Browse to the destination, select Use server folder, review, and save.</li><li><strong>Preview, then deploy.</strong> Preview uploads shows the planned files. Deploy uploads all eligible files; Sync uploads changed files. Watch follows subsequent saves while DevSync runs.</li></ol>
+      <ol class="help-steps"><li><strong>Add your local folder.</strong> Choose Add project, then select the folder to upload. For a built website, choose its build or dist folder.</li><li><strong>Connect your hosting.</strong> Enter your FTP, FTPS, or SFTP details, or load DEVSYNC_* settings from the folder’s .env. Test the connection to continue.</li><li><strong>Choose the server folder.</strong> Browse to the destination, select Use server folder, review, and save.</li><li><strong>Preview, then deploy.</strong> Preview uploads shows the planned files. Deploy uploads all eligible files; Sync compares local sizes and timestamps with saved sync records. Watch follows subsequent saves while DevSync runs. If your files are already on the server, use Scan server / Initial sync once to save matching files before your first sync.</li></ol>
     </section>
     <section class="summary-card" id="commonQuestions" aria-labelledby="commonQuestionsTitle"><h2 id="commonQuestionsTitle">Common questions</h2>
       <details><summary>How do I change a project’s local folder or hosting settings?</summary><p>Open the saved project and choose Edit setup. Change or browse for the local folder, review your hosting settings and destination, then save. Stop any active watch or upload before editing.</p></details>
       <details><summary>Why can’t I connect to my hosting?</summary><p>Confirm the host, protocol, port, username, and credentials with your hosting provider. FTP and FTPS usually use port 21; SFTP usually uses 22. If your ISP blocks port 21, ask your host whether SFTP or an alternative port is available. The server must support the protocol and port you choose.</p></details>
-      <details><summary>Why are my changes not uploading?</summary><p>Check the selected local folder and server destination. Use Preview uploads to see which files are included or excluded, check whether Preview only is enabled, and open the Activity log for errors. Watch requires DevSync to remain running.</p></details>
+      <details><summary>Why are my changes not uploading?</summary><p>Check the selected local folder and server destination. Use Preview uploads to see which files are included or excluded, check whether Preview only is enabled, and open the Activity log for errors. Sync trusts its saved records and does not check for edits made directly on the server. Deploy all files can restore your local files to the server. Watch requires DevSync to remain running.</p></details>
       <details><summary>Which settings take priority?</summary><p>Settings in the selected folder’s .env take priority over .devsync.env and saved settings. If an edit appears to revert, check those files. DevSync does not rewrite your application’s environment files.</p></details>
       <details><summary>Are credentials and server files protected?</summary><p>Saved credentials are encrypted on this computer. Environment files and other protected files are excluded from deployment. Local deletions are never mirrored to the server. Preview uploads before deploying to confirm your destination and file list.</p></details>
       <details><summary>Can I use DevSync from a terminal?</summary><p>Run <code>devsync help</code> for commands, <code>devsync ui</code> for this dashboard, or <code>devsync doctor</code> to check your local installation. The <code>shared-hosting-sync</code> command works as an alias.</p></details>

@@ -41,7 +41,7 @@ try {
   const [manifest] = JSON.parse(packed.stdout.slice(jsonStart))
   assert.equal(manifest.name, pkg.name)
   const files = manifest.files.map((entry) => entry.path)
-  for (const required of ['src/bin.js', 'src/cli.js', 'src/ui/index.html', 'src/ui/deployments.js', 'src/core/migrations/001_init.sql', 'src/core/migrations/002_operation_locks.sql', '.env.example', 'LICENSE', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(required), `Missing ${required}`)
+  for (const required of ['src/bin.js', 'src/cli.js', 'src/ui/index.html', 'src/ui/logo.svg', 'src/ui/deployments.js', 'src/core/migrations/001_init.sql', 'src/core/migrations/002_operation_locks.sql', 'src/core/migrations/003_sync_state.sql', 'src/core/syncState.js', '.env.example', 'LICENSE', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(required), `Missing ${required}`)
   for (const file of files) {
     assert.ok(file.startsWith('src/') || ['package.json', 'README.md', 'LICENSE', 'CHANGELOG.md', 'RELEASING.md', 'PHASES.md', 'PRODUCT.md', '.env.example'].includes(file), `Unexpected packaged file: ${file}`)
     assert.ok(!/\.(pem|key|db|log)$|(^|\/)\.env$|master\.key|session\.token/.test(file), `Sensitive file in package: ${file}`)
@@ -96,7 +96,7 @@ try {
   })
   const health = await (await fetch(new URL('api/health', url))).json()
   assert.deepEqual(health, { ok: true, name: pkg.name, version: pkg.version })
-  for (const asset of ['', 'ui.js', 'deployments.js', 'style.css']) assert.equal((await fetch(new URL(asset, url))).status, 200)
+  for (const asset of ['', 'ui.js', 'deployments.js', 'style.css', 'logo.svg']) assert.equal((await fetch(new URL(asset, url))).status, 200)
   const session = await (await fetch(new URL('api/session', url))).json()
   const projects = await (await fetch(new URL('api/projects', url), { headers: { 'x-devsync-session': session.token } })).json()
   assert.equal(projects.projects[0].label, 'site')

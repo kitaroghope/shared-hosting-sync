@@ -12,7 +12,8 @@ const UI_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/index.html', ['index.html', 'text/html']],
   ['/ui.js', ['ui.js', 'application/javascript']], ['/style.css', ['style.css', 'text/css']],
-  ['/deployments.js', ['deployments.js', 'application/javascript']]
+  ['/deployments.js', ['deployments.js', 'application/javascript']],
+  ['/logo.svg', ['logo.svg', 'image/svg+xml']]
 ])
 
 export async function startServer({ port = 5180, host = '127.0.0.1', openBrowser = true } = {}) {

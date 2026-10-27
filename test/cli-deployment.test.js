@@ -57,3 +57,26 @@ test('CLI saves destination and deploys same-size edits into that folder from an
   await seed("const p = m.getProjectByLabel('site'); m.setEnvOverrides(p.id, []);")
   await assert.rejects(run('sync', 'site'), /DEVSYNC_REMOTE_PATH/)
 })
+
+test('CLI scan confirms existing remote files once; later syncs and previews work offline', async (t) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-cli-scan-'))
+  const local = path.join(temp, 'local'); fs.mkdirSync(local)
+  const env = { ...process.env, DEVSYNC_HOME: path.join(temp, 'home'), DEVSYNC_ENV_FILE: '' }
+  const run = (...args) => exec(process.execPath, [cli, ...args], { cwd: temp, env, timeout: 20000 })
+  const srv = await startFtpFixture()
+  let stopped = false
+  t.after(async () => { if (!stopped) await srv.stop(); fs.rmSync(temp, { recursive: true, force: true }) })
+  fs.writeFileSync(path.join(local, 'index.html'), 'same')
+  const remote = path.join(srv.rootDir, 'public_html', 'site'); fs.mkdirSync(remote, { recursive: true })
+  fs.writeFileSync(path.join(remote, 'index.html'), 'same')
+  fs.writeFileSync(path.join(local, '.env'), [
+    'DEVSYNC_TRANSPORT=ftp', `DEVSYNC_HOST=${srv.host}`, `DEVSYNC_PORT=${srv.port}`,
+    `DEVSYNC_USERNAME=${srv.username}`, `DEVSYNC_PASSWORD=${srv.password}`, 'DEVSYNC_REMOTE_PATH=/public_html/site'
+  ].join('\n'))
+  await run('add', 'site', local, '/public_html/site')
+  await assert.rejects(run('scan', 'site'), /needs confirmation/)
+  assert.match((await run('scan', 'site', '--confirm')).stdout, /1 matching/)
+  await srv.stop(); stopped = true
+  assert.match((await run('sync', 'site')).stdout, /already up to date/)
+  assert.match((await run('plan', 'site')).stdout, /0 to upload/)
+})

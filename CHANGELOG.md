@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4 — 27 October 2026
+
+- Use persistent per-file sync records for fast local size and timestamp checks.
+  Unchanged syncs and previews no longer connect to the server.
+- Add a confirmed, read-only Scan server / Initial sync action to seed matching
+  files before the first sync, with baseline status and setup guidance.
+- Share sync records across CLI, dashboard, and watch; record successful uploads
+  individually, and keep failed uploads and in-flight edits pending for retry.
+
+- Add a DevSync SVG logo to the dashboard header, About & Help, and browser tab.
+- Show the running app version beside the logo in About & Help, loaded from package
+  metadata on startup and refreshed whenever Help opens.
+
 ## 0.1.3 — 27 October 2026
 
 - Add a styled console startup banner with app version and creator contact details,

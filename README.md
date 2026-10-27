@@ -342,9 +342,23 @@ Provision any server-side application secrets separately.
   aliases are not coordinated. Keep `DEVSYNC_HOME` on a local disk.
 - Plan, sync, and watch use the resolved server destination. Missing destinations
   fail before connecting; `/` is allowed only when explicitly configured.
-- Equal-size files are compared using streamed SHA-256 hashes of local and remote
-  contents. This reads matching-size remote files over the connection, increasing
-  download traffic during previews and syncs. `--force` bypasses content comparison.
+- Sync, preview, and watch compare local file size, modification time, and change
+  time with the last successful sync records in SQLite. Matching records survive
+  restarts. Unchanged syncs and previews do not connect to the server.
+- Upload records are saved only after successful uploads. Failed files and files
+  edited during an upload remain pending. Preview-only runs do not update records.
+- Records belong to a source folder and destination (protocol, host, port, account,
+  and server folder). Changing either starts a separate baseline.
+- If files already exist on the server, use **Scan server / Initial sync** in the
+  dashboard once before your first sync. It asks for confirmation, compares server
+  content using SHA-256 for equal-size files, and saves only matching files. It
+  uploads or deletes nothing; use Sync changes afterward for pending files.
+  Terminal equivalent: `devsync scan [label]` (or `--confirm` for automation).
+- Without existing records, Sync uploads every eligible local file and starts
+  tracking successful uploads. Normal Sync trusts those records: it does not detect
+  direct server edits or remote deletions. Use Deploy all files to restore local
+  content, or explicitly scan again to rebuild the baseline. Local deletions are
+  never mirrored to the server. `--force` uploads all eligible files.
 - Upload failures remain visible in the saved project status and make one-time
   sync commands exit unsuccessfully. Directory and inspection errors are surfaced.
 - Settings and encrypted saved credentials live in `~/.devsync/`; set
