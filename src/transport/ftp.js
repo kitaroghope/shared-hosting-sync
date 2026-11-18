@@ -9,6 +9,7 @@ import { hashSink } from '../checksum.js'
 export class FtpTransport {
   constructor(creds) {
     this.creds = creds
+    this.preparedDirs = new Set()
     this.client = null
   }
 
@@ -27,6 +28,7 @@ export class FtpTransport {
       c.close()
       throw err
     }
+    this.preparedDirs.clear()
     this.client = c
     return this
   }
@@ -42,16 +44,10 @@ export class FtpTransport {
   }
 
   async ensureDir(remotePath) {
-    if (!remotePath) return
-    // cd() creates nothing; uploadToDir() does not create intermediate dirs.
-    // Walk up so each level exists before the next.
-    const parts = remotePath.split('/').filter(Boolean)
-    let acc = remotePath.startsWith('/') ? '' : '.'
-    for (const part of parts) {
-      acc = acc === '' || acc === '.' ? `${acc}/${part}` : `${acc}/${part}`
-      const current = acc.startsWith('/') ? acc : `/${acc}`
-      await this.client.ensureDir(current)
-    }
+    if (!remotePath || this.preparedDirs.has(remotePath)) return
+    // basic-ftp creates intermediate directories itself. Uploads use absolute paths.
+    await this.client.ensureDir(remotePath)
+    this.preparedDirs.add(remotePath)
   }
 
   async exists(remotePath) {

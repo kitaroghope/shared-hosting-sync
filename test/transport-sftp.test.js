@@ -43,3 +43,13 @@ test('SFTP concurrent directory creation accepts an existing directory but surfa
   transport.client.exists = async () => false
   await assert.rejects(transport.ensureDir('/denied'), /already exists/)
 })
+
+test('SFTP worker checks a directory once and does not cache failed checks', async () => {
+  const transport = new SftpTransport({})
+  let checks = 0
+  transport.client = { exists: async () => ++checks === 1 ? '-' : 'd' }
+  await assert.rejects(transport.ensureDir('/site'), /occupied/)
+  await transport.ensureDir('/site')
+  await transport.ensureDir('/site')
+  assert.equal(checks, 2)
+})

@@ -65,3 +65,31 @@ test('FTPS rejects untrusted certificates instead of disabling verification', as
     await assert.rejects(createTransport({ transport: 'ftps', secure: true, host: server.host, port: server.port, username: server.username, password: server.password, timeoutMs: 2000 }), /certificate|self.signed/i)
   } finally { await server.stop() }
 })
+
+test('FTP reuses three connections and prepares shared folders only once per worker', async t => {
+  const server = await startFtpFixture()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-batch-'))
+  t.after(async () => { await server.stop(); fs.rmSync(root, { recursive: true, force: true }) })
+  const creds = { ...server, transport: 'ftp', timeoutMs: 3000 }
+  const uploads = Array.from({ length: 12 }, (_, i) => {
+    const rel = i + '.txt', abs = path.join(root, rel)
+    fs.writeFileSync(abs, 'file ' + i)
+    return { abs, rel, remote: '/site/assets/' + rel, bytes: fs.statSync(abs).size, dirs: ['/site', '/site/assets'] }
+  })
+  let connections = 0, folderCalls = 0, deletes = 0
+  const result = await runPlan({ uploads }, null, { createWorker: async () => {
+    const transport = await createTransport(creds)
+    const client = transport.raw.client
+    ++connections
+    const ensureDir = client.ensureDir.bind(client), remove = client.remove.bind(client)
+    client.ensureDir = (...args) => { ++folderCalls; return ensureDir(...args) }
+    client.remove = (...args) => { ++deletes; return remove(...args) }
+    return transport
+  } })
+  assert.deepEqual(result.failed, [])
+  assert.equal(result.done.length, 12)
+  assert.equal(connections, 3)
+  assert.equal(folderCalls, 3)
+  assert.equal(deletes, 0)
+  assert.deepEqual(fs.readdirSync(path.join(server.rootDir, 'site/assets')).sort(), uploads.map(file => file.rel).sort())
+})

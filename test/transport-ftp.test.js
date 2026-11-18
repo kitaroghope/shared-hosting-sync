@@ -98,3 +98,13 @@ test('FtpTransport: delete removes a file', async () => {
     await srv.stop()
   }
 })
+
+test('FTP worker prepares a nested directory once for multiple files', async () => {
+  const transport = new FtpTransport({})
+  const calls = []
+  transport.client = { ensureDir: async dir => calls.push(dir) }
+  await transport.ensureDir('/public/site/css')
+  await transport.ensureDir('/public/site/css')
+  await transport.ensureDir('/public/site/js')
+  assert.deepEqual(calls, ['/public/site/css', '/public/site/js'])
+})

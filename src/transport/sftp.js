@@ -7,6 +7,7 @@ import { finished } from 'node:stream/promises'
 export class SftpTransport {
   constructor(creds) {
     this.creds = creds
+    this.preparedDirs = new Set()
     this.client = null
   }
 
@@ -30,6 +31,7 @@ export class SftpTransport {
       await c.end().catch(() => {})
       throw err
     }
+    this.preparedDirs.clear()
     this.client = c
     return this
   }
@@ -47,7 +49,7 @@ export class SftpTransport {
   }
 
   async ensureDir(remotePath) {
-    if (!remotePath) return
+    if (!remotePath || this.preparedDirs.has(remotePath)) return
     const type = await this.client.exists(remotePath)
     if (type && type !== 'd') throw new Error(`Remote directory path is occupied by a file: ${remotePath}`)
     if (!type) {
@@ -57,6 +59,7 @@ export class SftpTransport {
         if (await this.client.exists(remotePath) !== 'd') throw error
       }
     }
+    this.preparedDirs.add(remotePath)
   }
 
   async exists(remotePath) {

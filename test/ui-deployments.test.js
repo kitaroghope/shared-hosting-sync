@@ -249,7 +249,7 @@ test('dashboard balances three queues, reroutes dropped work and saves only succ
       if (!started) { started = true; putCount++; if (putCount === 3) entered() }
       await gate
       if (interrupt && id === 1) throw Object.assign(new Error('connection lost'), { code: 'ECONNRESET' })
-      if (deny && remote.includes('/denied.txt')) throw new Error('permission denied')
+      if (deny && path.basename(local) === 'denied.txt') throw new Error('permission denied')
       return put(local, remote)
     }
     return client

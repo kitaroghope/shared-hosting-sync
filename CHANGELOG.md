@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6 — 18 November 2026
+
+- Reuse destination folder setup across each upload connection.
+- Avoid an extra server request for every successful file by using unique temporary
+  names and renaming only after transfer.
+- Reduce repeated local path and SQLite statement preparation during large syncs.
+
 ## 0.1.5 — 18 November 2026
 
 - List server folders before comparing local files during an initial scan, avoiding

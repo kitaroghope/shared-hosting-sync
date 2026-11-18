@@ -176,7 +176,8 @@ test('runPlan: atomic write — every upload is put to .tmp then renamed', async
     assert.equal(result.failed.length, 0, 'no failed uploads')
     assert.equal(result.done.length, 2, 'two uploads succeeded')
 
-    // For each file, we expect: delete(tmp).catch, put(abs, tmp), rename(tmp, real).
+    // For each file, we expect: put(abs, tmp), rename(tmp, real).
+    assert.equal(transport.calls.filter(c => c.method === 'delete').length, 0)
     // Verify the order and that no half-file path is observed.
     for (const fileName of ['a.txt', 'b.txt']) {
       const puts = transport.calls.filter(

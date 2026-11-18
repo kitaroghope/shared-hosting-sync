@@ -27,11 +27,19 @@ export function syncStatus(scope) {
   return { trackedFiles: count, scannedAt: target?.scanned_at || null, ready: !!target }
 }
 
+const statements = new WeakMap()
+function prepared(db, sql) {
+  let cache = statements.get(db)
+  if (!cache) statements.set(db, cache = new Map())
+  if (!cache.has(sql)) cache.set(sql, db.prepare(sql))
+  return cache.get(sql)
+}
+
 function ensureTarget(db, scope) {
-  db.prepare('INSERT OR IGNORE INTO sync_targets (project_id, target_key) VALUES (?, ?)').run(scope.projectId, scope.targetKey)
+  prepared(db, 'INSERT OR IGNORE INTO sync_targets (project_id, target_key) VALUES (?, ?)').run(scope.projectId, scope.targetKey)
 }
 function writeFile(db, scope, rel, value) {
-  db.prepare(`INSERT INTO sync_files (project_id, target_key, relative_path, size, mtime_ms, ctime_ms, synced_at)
+  prepared(db, `INSERT INTO sync_files (project_id, target_key, relative_path, size, mtime_ms, ctime_ms, synced_at)
     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, target_key, relative_path) DO UPDATE SET
     size=excluded.size, mtime_ms=excluded.mtime_ms, ctime_ms=excluded.ctime_ms, synced_at=excluded.synced_at`)
     .run(scope.projectId, scope.targetKey, rel, value.size, value.mtimeMs, value.ctimeMs, new Date().toISOString())
@@ -41,7 +49,7 @@ function writeFile(db, scope, rel, value) {
 export function recordUploadedFile(scope, item) {
   const db = openDb()
   if (!sameFile(item.fingerprint, currentFingerprint(item.abs))) {
-    db.prepare('DELETE FROM sync_files WHERE project_id = ? AND target_key = ? AND relative_path = ?').run(scope.projectId, scope.targetKey, item.rel)
+    prepared(db, 'DELETE FROM sync_files WHERE project_id = ? AND target_key = ? AND relative_path = ?').run(scope.projectId, scope.targetKey, item.rel)
     return
   }
   ensureTarget(db, scope)
@@ -54,7 +62,7 @@ export function replaceScannedFiles(scope, matches) {
   db.exec('BEGIN IMMEDIATE')
   try {
     ensureTarget(db, scope)
-    db.prepare('DELETE FROM sync_files WHERE project_id = ? AND target_key = ?').run(scope.projectId, scope.targetKey)
+    prepared(db, 'DELETE FROM sync_files WHERE project_id = ? AND target_key = ?').run(scope.projectId, scope.targetKey)
     for (const item of matches) {
       if (sameFile(item.fingerprint, currentFingerprint(item.abs))) writeFile(db, scope, item.rel, item.fingerprint)
     }

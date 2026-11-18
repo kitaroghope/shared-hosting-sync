@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { runUploadQueue } from './uploadQueue.js'
 import path from 'node:path'
 import { validateRemotePath, relativeFile } from './paths.js'
@@ -7,6 +8,7 @@ import { fingerprint, sameFile } from './core/fileFingerprint.js'
 import { isTransient } from './transport/reliable.js'
 
 const TMP_SUFFIX = '.devsync-uploading'
+const temporaryPaths = new WeakMap()
 
 /** Local Windows path -> remote POSIX path, relative to the project root. */
 export function toRemotePath(projectRoot, remoteRoot, localAbsPath) {
@@ -62,8 +64,9 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false, onE
  */
 export async function buildPlan(project, matcher, transport, { force = false, remoteInventory, onProgress } = {}) {
   const { localPath, remotePath } = project
-  validateRemotePath(remotePath)
-  if (!fs.statSync(localPath).isDirectory()) throw new Error('Local source must be a directory')
+  const root = validateRemotePath(remotePath)
+  const realRoot = fs.realpathSync(localPath)
+  if (!fs.statSync(realRoot).isDirectory()) throw new Error('Local source must be a directory')
   const excluded = []
   let excludedCount = 0
   const files = collectFiles(localPath, matcher, { onExcluded: (entry) => {
@@ -78,11 +81,11 @@ export async function buildPlan(project, matcher, transport, { force = false, re
   let comparedBytes = 0
 
   for (const [index, abs] of files.entries()) {
-    const rel = path.relative(localPath, abs).split(path.sep).join('/')
-    const remote = toRemotePath(localPath, remotePath, abs)
+    const rel = relativeFile(localPath, abs)
+    const remote = `${root === '/' ? '' : root}/${rel}`
     let localStat
     try {
-      relativeFile(fs.realpathSync(localPath), fs.realpathSync(abs))
+      relativeFile(realRoot, fs.realpathSync(abs))
       localStat = fs.statSync(abs)
     } catch (err) {
       if (err.code === 'ENOENT') continue
@@ -92,7 +95,6 @@ export async function buildPlan(project, matcher, transport, { force = false, re
     if (onProgress) onProgress({ phase: 'planning', item: { rel, remote, bytes: localStat.size }, index, total: files.length })
 
     const localFingerprint = fingerprint(localStat)
-    const item = { abs, rel, remote, bytes: localStat.size, dirs: ancestorsOf(remote), fingerprint: localFingerprint }
     if (saved) {
       if (!force && sameFile(saved.get(rel), localFingerprint)) {
         skipped.push({ rel, bytes: localStat.size, reason: 'unchanged since last successful sync' })
@@ -104,7 +106,7 @@ export async function buildPlan(project, matcher, transport, { force = false, re
       if (!force && remoteStat && remoteStat.size === localStat.size &&
           await transport.checksum(remote) === await hashFile(abs)) {
         skipped.push({ rel, bytes: localStat.size, reason: 'same content' })
-        matches.push(item)
+        matches.push({ abs, rel, fingerprint: localFingerprint })
         continue
       }
     }
@@ -149,7 +151,7 @@ export async function scanServer(project, matcher, transport, options = {}) {
 }
 
 /**
- * Upload one file atomically: write to <name>.devsync-uploading, then rename.
+ * Upload one file atomically: write to a unique temporary file, then rename.
  * Without this, PHP can parse a half-written file and 500 mid-transfer.
  */
 export async function uploadOne(transport, item, options) {
@@ -158,12 +160,15 @@ export async function uploadOne(transport, item, options) {
 }
 
 async function uploadAttempt(transport, item) {
-  for (const dir of item.dirs) {
-    await transport.ensureDir(dir)
+  const parent = item.dirs.at(-1)
+  if (parent) await transport.ensureDir(parent)
+  // Reuse this file’s temporary name on retry so a leftover partial file is replaced.
+  let tmp = temporaryPaths.get(item)
+  if (!tmp) {
+    tmp = path.posix.join(path.posix.dirname(item.remote), randomUUID() + TMP_SUFFIX)
+    temporaryPaths.set(item, tmp)
   }
-  const tmp = item.remote + TMP_SUFFIX
   try {
-    await transport.delete(tmp).catch(() => {})
     await transport.put(item.abs, tmp)
     await transport.rename(tmp, item.remote)
   } catch (err) {
@@ -173,16 +178,13 @@ async function uploadAttempt(transport, item) {
 }
 
 export async function runPlan(plan, transport, { dryRun = false, onProgress, onFileResult, createWorker, concurrency = 3, retries = 2, retryDelayMs = 250, onRetry, onWorkerState } = {}) {
+  const record = !dryRun && plan.syncScope && plan.uploads.length
+    ? (await import('./core/syncState.js')).recordUploadedFile : null
   if (!dryRun && createWorker) {
     return runUploadQueue(plan.uploads, {
       transport, createWorker, concurrency, retries, retryDelayMs, onProgress, onFileResult, onRetry, onWorkerState,
       upload: (client, item) => uploadOne(client, item, { retries: 0 }),
-      succeeded: async item => {
-        if (plan.syncScope) {
-          const { recordUploadedFile } = await import('./core/syncState.js')
-          recordUploadedFile(plan.syncScope, item)
-        }
-      }
+      succeeded: item => record?.(plan.syncScope, item)
     })
   }
   const done = []
@@ -200,10 +202,7 @@ export async function runPlan(plan, transport, { dryRun = false, onProgress, onF
     }
     try {
       await uploadOne(transport, item)
-      if (plan.syncScope) {
-        const { recordUploadedFile } = await import('./core/syncState.js')
-        recordUploadedFile(plan.syncScope, item)
-      }
+      record?.(plan.syncScope, item)
       done.push({ rel: item.rel, bytes: item.bytes })
       bytes += item.bytes
       if (onFileResult) onFileResult({ item, index: i, total: plan.uploads.length, success: true, dryRun: false, bytes })
