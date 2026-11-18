@@ -209,7 +209,7 @@ export class DeploymentService {
     const result = await runPlan(plan, record.transport, {
       dryRun: record.view.dryRun, createWorker, concurrency: context.concurrency,
       onWorkerState: event => this.workerState(record, event),
-      onRetry: event => this.log(record, `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`, 'warning'),
+      onRetry: event => this.log(record, event.connectionLimit ? `Server connection limit reached. Continuing with up to ${event.connectionLimit} upload queue(s).` : `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`, 'warning'),
       onProgress: (event) => this.progress(record, event), onFileResult: (event) => this.fileResult(record, event)
     })
     this.complete(record, { done: result.done.length, failed: result.failed, bytes: result.bytes, dryRun: record.view.dryRun })

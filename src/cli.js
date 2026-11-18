@@ -335,7 +335,7 @@ const COMMANDS = {
       const r = await runPlan(p, t, {
         dryRun, concurrency: creds.concurrency,
         createWorker: () => createTransport(creds, undefined, { retries: 0 }),
-        onRetry: event => warn(`Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`),
+        onRetry: event => warn(event.connectionLimit ? `Server connection limit reached. Continuing with up to ${event.connectionLimit} upload queue(s).` : `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`),
         onFileResult: ({ index, total, item }) => {
           const pct = Math.floor(((index + 1) / total) * 100)
           if (pct !== lastPct && pct % 10 === 0) {

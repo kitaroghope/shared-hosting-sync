@@ -91,10 +91,16 @@ stop DevSync and copy that directory somewhere private. Keep the database and
 Deploy, Sync, and Watch use up to **3 upload queues** by default. Each queue owns
 an independent connection to the same host and configured port, so FTP commands
 never overlap on one control connection. FTP/FTPS data connections still use the
-server's passive ports. SFTP uses separate SSH/SFTP sessions.
+server's passive ports. SFTP uses separate SSH/SFTP sessions. Workers connect one at a time, up to the
+configured limit. If the server explicitly limits connections, remaining files
+move to the available queues, and Watch remembers the lower limit until stopped.
+Use your provider’s documented limit for the Parallel uploads setting.
 
-Files are initially balanced by byte size. Idle queues take pending work from
-other queues. If a connection drops, its interrupted file returns to the pending
+Files are grouped by folder and balanced across queues by byte size. Within each
+queue, files are processed alphabetically, with parent folders before their
+subfolders. Multiple queues can work on different folders at the same time. Use
+one queue for strict folder-by-folder order. Idle queues can take pending work
+from other queues. If a connection drops, its interrupted file returns to the pending
 list and healthy queues continue. A file gets at most two retries after its first
 attempt; replacement connection rounds are also bounded. Permission errors are
 reported immediately. Failed files remain pending for a later sync. An uncertain

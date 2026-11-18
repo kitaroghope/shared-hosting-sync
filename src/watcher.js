@@ -89,8 +89,9 @@ export class ProjectWatcher {
       const result = await runPlan(plan, this.transport, {
         dryRun: this.dryRun, createWorker: this.createWorker, concurrency: this.concurrency,
         onProgress: this.onProgress, onFileResult: this.onFileResult, onWorkerState: this.onWorkerState,
-        onRetry: event => this.onEvent({ type: 'retry', message: `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.` })
+        onRetry: event => this.onEvent({ type: 'retry', message: event.connectionLimit ? `Server connection limit reached. Continuing with up to ${event.connectionLimit} upload queue(s).` : `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.` })
       })
+      if (result.connectionLimit) this.concurrency = result.connectionLimit
       this.stats.cycles++
       if (!this.dryRun) this.stats.uploaded += result.done.length
       this.stats.failed += result.failed.length

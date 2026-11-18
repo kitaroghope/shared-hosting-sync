@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7 — 18 November 2026
+
+- Group uploads by folder and order files by name, with parent folders before
+  subfolders within each queue. Use one queue for strict folder-by-folder order.
+- Open upload connections one at a time and fall back to fewer queues when the
+  server explicitly reports a connection limit.
+- Reuse an open Watch connection in retry rounds and retain the lower connection
+  limit until Watch is stopped.
+
 ## 0.1.6 — 18 November 2026
 
 - Reuse destination folder setup across each upload connection.
