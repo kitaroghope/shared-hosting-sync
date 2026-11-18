@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { runUploadQueue } from './uploadQueue.js'
 import path from 'node:path'
 import { validateRemotePath, relativeFile } from './paths.js'
 import { hashFile } from './checksum.js'
@@ -59,7 +60,7 @@ export function collectFiles(projectRoot, matcher, { includeIgnored = false, onE
  * Build the list of uploads without touching the network for writes.
  * Saved projects compare local metadata with SQLite. Explicit scans verify remote content.
  */
-export async function buildPlan(project, matcher, transport, { force = false, scan = false, onProgress } = {}) {
+export async function buildPlan(project, matcher, transport, { force = false, remoteInventory, onProgress } = {}) {
   const { localPath, remotePath } = project
   validateRemotePath(remotePath)
   if (!fs.statSync(localPath).isDirectory()) throw new Error('Local source must be a directory')
@@ -70,7 +71,7 @@ export async function buildPlan(project, matcher, transport, { force = false, sc
     if (excluded.length < 200) excluded.push(entry)
   } })
   const scope = project.syncScope
-  const saved = scope && !scan ? (await import('./core/syncState.js')).readSyncFiles(scope) : null
+  const saved = scope && !remoteInventory ? (await import('./core/syncState.js')).readSyncFiles(scope) : null
   const matches = []
   const uploads = []
   const skipped = []
@@ -98,7 +99,7 @@ export async function buildPlan(project, matcher, transport, { force = false, sc
         continue
       }
     } else {
-      const remoteStat = await transport.stat(remote)
+      const remoteStat = remoteInventory ? remoteInventory.get(rel) : await transport.stat(remote)
       if (remoteStat?.isDir) throw new Error(`Remote file destination is a directory: ${remote}`)
       if (!force && remoteStat && remoteStat.size === localStat.size &&
           await transport.checksum(remote) === await hashFile(abs)) {
@@ -125,7 +126,23 @@ export async function buildPlan(project, matcher, transport, { force = false, sc
 /** Scan server content without uploading; only confirmed matches become the baseline. */
 export async function scanServer(project, matcher, transport, options = {}) {
   if (!project.syncScope) throw new Error('A saved project is required for a server scan')
-  const plan = await buildPlan(project, matcher, transport, { ...options, force: false, scan: true })
+  const root = validateRemotePath(project.remotePath)
+  const remoteInventory = new Map()
+  const folders = ['']
+  for (let index = 0; index < folders.length; index++) {
+    const folder = folders[index]
+    const remote = path.posix.join(root, folder)
+    options.onProgress?.({ phase: 'inventory', item: { rel: remote }, index, total: folders.length })
+    for (const entry of await transport.list(remote)) {
+      if (!entry.name || entry.name === '.' || entry.name === '..' || /[\\/\x00-\x1f\x7f]/.test(entry.name)) continue
+      const rel = folder ? folder + '/' + entry.name : entry.name
+      const isDir = entry.type === 'dir'
+      if (entry.type !== 'file' && !isDir) continue
+      remoteInventory.set(rel, { isDir, size: entry.size })
+      if (isDir && matcher.shouldWatch(path.join(project.localPath, ...rel.split('/')))) folders.push(rel)
+    }
+  }
+  const plan = await buildPlan(project, matcher, transport, { ...options, force: false, remoteInventory })
   const { replaceScannedFiles } = await import('./core/syncState.js')
   replaceScannedFiles(project.syncScope, plan.matches)
   return plan
@@ -135,8 +152,8 @@ export async function scanServer(project, matcher, transport, options = {}) {
  * Upload one file atomically: write to <name>.devsync-uploading, then rename.
  * Without this, PHP can parse a half-written file and 500 mid-transfer.
  */
-export async function uploadOne(transport, item) {
-  if (transport.transaction) return transport.transaction((raw) => uploadAttempt(raw, item))
+export async function uploadOne(transport, item, options) {
+  if (transport.transaction) return transport.transaction((raw) => uploadAttempt(raw, item), options)
   return uploadAttempt(transport, item)
 }
 
@@ -155,7 +172,19 @@ async function uploadAttempt(transport, item) {
   }
 }
 
-export async function runPlan(plan, transport, { dryRun = false, onProgress, onFileResult } = {}) {
+export async function runPlan(plan, transport, { dryRun = false, onProgress, onFileResult, createWorker, concurrency = 3, retries = 2, retryDelayMs = 250, onRetry, onWorkerState } = {}) {
+  if (!dryRun && createWorker) {
+    return runUploadQueue(plan.uploads, {
+      transport, createWorker, concurrency, retries, retryDelayMs, onProgress, onFileResult, onRetry, onWorkerState,
+      upload: (client, item) => uploadOne(client, item, { retries: 0 }),
+      succeeded: async item => {
+        if (plan.syncScope) {
+          const { recordUploadedFile } = await import('./core/syncState.js')
+          recordUploadedFile(plan.syncScope, item)
+        }
+      }
+    })
+  }
   const done = []
   const failed = []
   let bytes = 0

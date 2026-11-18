@@ -230,3 +230,54 @@ test('initial scan requires confirmation, performs no uploads, and seeds a persi
     assert.equal(connects, 0)
   } finally { await restarted.close() }
 })
+
+test('dashboard balances three queues, reroutes dropped work and saves only successful files', async () => {
+  const saved = project('parallel-uploads')
+  for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(saved.localPath, `extra-${i}.txt`), `extra-${i}`)
+  fs.writeFileSync(path.join(saved.localPath, 'denied.txt'), 'denied')
+  let release, entered, count = 0, putCount = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const allUploading = new Promise(resolve => { entered = resolve })
+  const clients = []
+  let deny = true, interrupt = true
+  const service = new DeploymentService({ connect: async () => {
+    const client = createMockTransport(), id = ++count
+    clients.push(client)
+    const put = client.put.bind(client)
+    let started = false
+    client.put = async (local, remote) => {
+      if (!started) { started = true; putCount++; if (putCount === 3) entered() }
+      await gate
+      if (interrupt && id === 1) throw Object.assign(new Error('connection lost'), { code: 'ECONNRESET' })
+      if (deny && remote.includes('/denied.txt')) throw new Error('permission denied')
+      return put(local, remote)
+    }
+    return client
+  } })
+  try {
+    service.start(saved.id, 'sync')
+    await allUploading
+    const active = service.activity(saved.id)
+    assert.equal(active.concurrency, 3)
+    assert.equal(active.workers.length, 3)
+    assert.equal(active.progress.current, 0)
+    release()
+    const finished = await until(async () => service.activity(saved.id), value => !value.active)
+    assert.equal(finished.result.uploaded, 6)
+    assert.equal(finished.result.failedCount, 1)
+    assert.equal(finished.result.failed[0].rel, 'denied.txt')
+    assert.equal(finished.baseline.trackedFiles, 6)
+    assert.equal(finished.progress.current, 7)
+    assert.equal(finished.logs.filter(log => log.message.startsWith('Uploaded ')).length, 6)
+    assert.ok(finished.logs.some(log => log.message.includes('returned to the pending queue')))
+    assert.equal(count, 3)
+    assert.ok(clients.every(client => client.calls.filter(call => call.method === 'close').length === 1))
+    deny = false; interrupt = false
+    service.start(saved.id, 'sync')
+    const retried = await until(async () => service.activity(saved.id), value => !value.active)
+    assert.equal(retried.result.uploaded, 1)
+    assert.equal(retried.baseline.trackedFiles, 7)
+    assert.equal(retried.result.failedCount, 0)
+    assert.equal(count, 4, 'one pending file opens only one connection')
+  } finally { release(); await service.close() }
+})

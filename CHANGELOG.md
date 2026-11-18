@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.5 — 18 November 2026
+
+- List server folders before comparing local files during an initial scan, avoiding
+  a separate server metadata request for every local file. Verified matches are
+  saved to SQLite before the next sync.
+- Upload through three independent connections by default, balanced by file size.
+  Idle workers take pending work from other queues.
+- Return interrupted files to the pending queue for healthy workers, with bounded
+  retries and completion-based progress. Failed files remain pending in SQLite.
+- Show individual queue status in the dashboard and allow 1–8 parallel uploads
+  through project settings, DEVSYNC_CONCURRENCY, or --concurrency.
+
 ## 0.1.4 — 27 October 2026
 
 - Use persistent per-file sync records for fast local size and timestamp checks.

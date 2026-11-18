@@ -40,7 +40,7 @@ export class SftpTransport {
       .filter((e) => e.name !== '.' && e.name !== '..')
       .map((e) => ({
         name: e.name,
-        type: e.type === 'd' ? 'dir' : 'file',
+        type: e.type === 'd' ? 'dir' : e.type === '-' ? 'file' : 'other',
         size: e.size ?? 0,
         mtime: e.modifyTime ? new Date(e.modifyTime) : null
       }))
@@ -50,7 +50,13 @@ export class SftpTransport {
     if (!remotePath) return
     const type = await this.client.exists(remotePath)
     if (type && type !== 'd') throw new Error(`Remote directory path is occupied by a file: ${remotePath}`)
-    if (!type) await this.client.mkdir(remotePath, true)
+    if (!type) {
+      try { await this.client.mkdir(remotePath, true) }
+      catch (error) {
+        // Another upload worker may have created the same directory meanwhile.
+        if (await this.client.exists(remotePath) !== 'd') throw error
+      }
+    }
   }
 
   async exists(remotePath) {

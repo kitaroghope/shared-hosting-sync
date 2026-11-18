@@ -24,7 +24,7 @@ aliases, SQLite storage, environment onboarding, real FTP deploy/sync, dashboard
 startup, API identity, and UI assets must pass. Nothing is installed into the
 developer's usual global prefix. Generated files are under `artifacts/`:
 
-- `shared-hosting-sync-0.1.0.tgz` (version follows package.json)
+- `shared-hosting-sync-<version>.tgz` (version follows package.json)
 - `release.json`, including the complete package file list
 - `SHA256SUMS`
 
@@ -45,9 +45,9 @@ npm whoami
 npm view shared-hosting-sync name version
 ```
 
-The registry returned no published record for `shared-hosting-sync` on 21 October
-2026. A 404 does not reserve the name or guarantee publication rights. Confirm
-the signed-in account is the intended maintainer. Use npm's browser sign-in and
+Confirm the signed-in account is the intended maintainer and that the candidate
+version has not already been published. Replace `<version>` in the examples with
+the candidate version from package.json. Use npm's browser sign-in and
 complete any account/2FA requirements personally; do not put tokens into source
 files or chat.
 
@@ -55,7 +55,7 @@ Once the account, version, passing CI, package manifest, and checksum are review
 publish the exact checked archive:
 
 ```sh
-npm publish ./artifacts/shared-hosting-sync-0.1.0.tgz --access public
+npm publish "./artifacts/shared-hosting-sync-<version>.tgz" --access public
 ```
 
 Publishing with `--access public` makes the package contents publicly available. Publishing
@@ -66,8 +66,8 @@ published version; fix issues in a new version.
 ## Verify publication
 
 ```sh
-npm view shared-hosting-sync@0.1.0 name version dist.integrity
-npm install -g shared-hosting-sync@0.1.0
+npm view "shared-hosting-sync@<version>" name version dist.integrity
+npm install -g "shared-hosting-sync@<version>"
 shared-hosting-sync --version
 devsync --version
 shared-hosting-sync ui

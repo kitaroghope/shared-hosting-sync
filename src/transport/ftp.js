@@ -35,7 +35,7 @@ export class FtpTransport {
     const items = await this.client.list(remotePath || '/')
     return items.map((e) => ({
       name: e.name,
-      type: e.isDirectory ? 'dir' : 'file',
+      type: e.isDirectory ? 'dir' : e.isFile ? 'file' : 'other',
       size: e.size ?? 0,
       mtime: e.modifyTime ? new Date(e.modifyTime) : null
     }))

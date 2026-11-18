@@ -83,6 +83,15 @@ export const ENV_SCHEMA = [
     help: 'Plan and report without uploading.'
   },
   {
+    key: 'DEVSYNC_CONCURRENCY',
+    type: 'int',
+    default: 3,
+    min: 1,
+    max: 8,
+    label: 'Parallel uploads',
+    help: 'Upload queues (1–8). Default 3. Use 1 if your host limits connections.'
+  },
+  {
     key: 'DEVSYNC_DEBOUNCE_MS',
     type: 'int',
     default: 400,

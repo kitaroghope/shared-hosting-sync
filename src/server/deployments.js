@@ -60,7 +60,7 @@ export class DeploymentService {
   }
 
   progress(record, event) {
-    if (!record.stopRequested) record.view.phase = event.phase === 'planning' ? 'planning' : 'uploading'
+    if (!record.stopRequested) record.view.phase = event.phase === 'inventory' ? 'inventory' : event.phase === 'planning' ? 'planning' : 'uploading'
     record.view.progress = {
       current: event.index, total: event.total, file: this.clean(record, event.item.rel),
       bytes: record.view.progress?.bytes || 0
@@ -69,6 +69,7 @@ export class DeploymentService {
   }
 
   plan(record, plan) {
+    record.view.workers = []
     record.view.plan = {
       considered: plan.totalFiles, uploadCount: plan.uploads.length, skippedCount: plan.skipped.length,
       bytes: plan.comparedBytes,
@@ -80,6 +81,15 @@ export class DeploymentService {
     }
     record.view.progress = { current: 0, total: plan.uploads.length, file: null, bytes: 0 }
     this.log(record, `Compared ${plan.totalFiles} files: ${plan.uploads.length} to upload, ${plan.skipped.length} unchanged`)
+  }
+
+  workerState(record, event) {
+    record.view.workers ||= []
+    const current = record.view.workers.findIndex(worker => worker.workerId === event.workerId)
+    const value = { workerId: event.workerId, state: event.state, file: event.file ? this.clean(record, event.file) : null }
+    if (current < 0) record.view.workers.push(value)
+    else record.view.workers[current] = value
+    record.view.updatedAt = stamp()
   }
 
   fileResult(record, event) {
@@ -125,7 +135,7 @@ export class DeploymentService {
         projectId: project.id, operationId: crypto.randomUUID(), kind,
         mode: kind === 'preview' ? options.mode || 'sync' : kind === 'deploy' ? 'deploy' : 'sync',
         state: 'running', phase: 'connecting', dryRun, plan: null, result: null, progress: null,
-        logs: [], lastError: null, startedAt: stamp(), updatedAt: stamp(), remotePath: context.project.remotePath
+        logs: [], workers: [], concurrency: context.concurrency, lastError: null, startedAt: stamp(), updatedAt: stamp(), remotePath: context.project.remotePath
       }
     }
     this.records.set(project.id, record)
@@ -151,6 +161,7 @@ export class DeploymentService {
     }
     if (record.stopRequested || this.closing) return
     const context = record.context
+    const createWorker = () => this.connect(context.creds, undefined, { retries: 0 })
     if (record.view.kind === 'scan') {
       await connect()
       const plan = await scanServer(context.project, context.matcher, record.transport, { onProgress: (event) => this.progress(record, event) })
@@ -168,6 +179,8 @@ export class DeploymentService {
       if (record.stopRequested || this.closing) return
       const watcher = this.watcherFactory(context.project, context.matcher, record.transport, {
         dryRun: record.view.dryRun, debounceMs: context.debounceMs,
+        createWorker, concurrency: context.concurrency,
+        onWorkerState: event => this.workerState(record, event),
         onProgress: (event) => this.progress(record, event),
         onPlan: (plan) => this.plan(record, plan),
         onFileResult: (event) => this.fileResult(record, event),
@@ -193,9 +206,10 @@ export class DeploymentService {
       force: record.view.mode === 'deploy', onProgress: (event) => this.progress(record, event)
     })
     this.plan(record, plan)
-    if (!record.view.dryRun && plan.uploads.length) await connect()
     const result = await runPlan(plan, record.transport, {
-      dryRun: record.view.dryRun,
+      dryRun: record.view.dryRun, createWorker, concurrency: context.concurrency,
+      onWorkerState: event => this.workerState(record, event),
+      onRetry: event => this.log(record, `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`, 'warning'),
       onProgress: (event) => this.progress(record, event), onFileResult: (event) => this.fileResult(record, event)
     })
     this.complete(record, { done: result.done.length, failed: result.failed, bytes: result.bytes, dryRun: record.view.dryRun })

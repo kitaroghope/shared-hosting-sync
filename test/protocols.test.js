@@ -15,14 +15,14 @@ const tls = {
   cert: fs.readFileSync(new URL('./fixtures/tls/localhost-cert.pem', import.meta.url))
 }
 
-for (const kind of ['ftps', 'sftp']) {
+for (const kind of ['ftp', 'ftps', 'sftp']) {
   test(`${kind}: real server preview, nested deployment, same-size sync, exclusions and failure`, async () => {
     let server, root, transport
     try {
-      server = kind === 'sftp' ? await startSftpFixture() : await startFtpFixture({ tls })
+      server = kind === 'sftp' ? await startSftpFixture() : await startFtpFixture(kind === 'ftps' ? { tls } : {})
       root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-protocol-'))
       const creds = kind === 'sftp' ? server.creds : {
-        transport: 'ftps', secure: true, host: server.host, port: server.port, username: server.username, password: server.password,
+        transport: kind, secure: kind === 'ftps', host: server.host, port: server.port, username: server.username, password: server.password,
         timeoutMs: 3000, secureOptions: { ca: tls.cert }
       }
       fs.mkdirSync(path.join(root, 'nested'))
@@ -34,11 +34,12 @@ for (const kind of ['ftps', 'sftp']) {
       fs.mkdirSync(path.join(root, 'node_modules')); fs.writeFileSync(path.join(root, 'node_modules/pkg.js'), 'never')
       const project = { localPath: root, remotePath: '/public_html/site' }, matcher = buildMatcher(root)
       transport = await createTransport(creds)
+      const queueOptions = { createWorker: () => createTransport(creds, undefined, { retries: 0 }) }
       const plan = await buildPlan(project, matcher, transport)
       assert.equal(plan.uploads.length, 3)
       await runPlan(plan, transport, { dryRun: true })
       assert.deepEqual(fs.readdirSync(server.rootDir), [])
-      assert.equal((await runPlan(plan, transport)).failed.length, 0)
+      assert.equal((await runPlan(plan, transport, queueOptions)).failed.length, 0)
       const remote = path.join(server.rootDir, 'public_html/site/nested/index.html')
       assert.equal(fs.readFileSync(remote, 'utf8'), 'old!')
       assert.deepEqual(fs.readFileSync(path.join(server.rootDir, 'public_html/site/nested/payload.bin')), payload)
@@ -46,12 +47,12 @@ for (const kind of ['ftps', 'sftp']) {
       fs.writeFileSync(path.join(root, 'nested/index.html'), 'new!')
       const changed = await buildPlan(project, matcher, transport)
       assert.equal(changed.uploads.length, 1)
-      assert.equal((await runPlan(changed, transport)).failed.length, 0)
+      assert.equal((await runPlan(changed, transport, queueOptions)).failed.length, 0)
       assert.equal(fs.readFileSync(remote, 'utf8'), 'new!')
       assert.equal(fs.existsSync(path.join(server.rootDir, 'public_html/site/.env')), false)
       const bad = await buildPlan({ ...project, remotePath: '/blocked/site' }, matcher, transport)
       fs.writeFileSync(path.join(server.rootDir, 'blocked'), 'file')
-      assert.equal((await runPlan(bad, transport)).failed.length, 3)
+      assert.equal((await runPlan(bad, transport, queueOptions)).failed.length, 3)
       assert.equal(fs.existsSync(remote + '.devsync-uploading'), false)
     } catch (error) { console.error(`${kind} integration failed:`, error); throw error }
     finally { if (transport) await transport.close(); if (server) await server.stop(); if (root) fs.rmSync(root, { recursive: true, force: true }) }

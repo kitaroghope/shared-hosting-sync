@@ -18,6 +18,7 @@ export function resolveDeployment(project, options = {}) {
     matcher: buildMatcher(target.localPath),
     creds: credsFromResolved(resolved.values),
     dryRun: ['true', '1', true].includes(resolved.values.DEVSYNC_DRY_RUN),
+    concurrency: Number(resolved.values.DEVSYNC_CONCURRENCY),
     debounceMs: Number(resolved.values.DEVSYNC_DEBOUNCE_MS),
     values: resolved.values
   }

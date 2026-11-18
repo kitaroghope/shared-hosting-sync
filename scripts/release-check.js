@@ -41,7 +41,7 @@ try {
   const [manifest] = JSON.parse(packed.stdout.slice(jsonStart))
   assert.equal(manifest.name, pkg.name)
   const files = manifest.files.map((entry) => entry.path)
-  for (const required of ['src/bin.js', 'src/cli.js', 'src/ui/index.html', 'src/ui/logo.svg', 'src/ui/deployments.js', 'src/core/migrations/001_init.sql', 'src/core/migrations/002_operation_locks.sql', 'src/core/migrations/003_sync_state.sql', 'src/core/syncState.js', '.env.example', 'LICENSE', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(required), `Missing ${required}`)
+  for (const required of ['src/bin.js', 'src/cli.js', 'src/uploadQueue.js', 'src/ui/index.html', 'src/ui/logo.svg', 'src/ui/deployments.js', 'src/core/migrations/001_init.sql', 'src/core/migrations/002_operation_locks.sql', 'src/core/migrations/003_sync_state.sql', 'src/core/syncState.js', '.env.example', 'LICENSE', 'README.md', 'CHANGELOG.md']) assert.ok(files.includes(required), `Missing ${required}`)
   for (const file of files) {
     assert.ok(file.startsWith('src/') || ['package.json', 'README.md', 'LICENSE', 'CHANGELOG.md', 'RELEASING.md', 'PHASES.md', 'PRODUCT.md', '.env.example'].includes(file), `Unexpected packaged file: ${file}`)
     assert.ok(!/\.(pem|key|db|log)$|(^|\/)\.env$|master\.key|session\.token/.test(file), `Sensitive file in package: ${file}`)

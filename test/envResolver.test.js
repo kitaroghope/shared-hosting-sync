@@ -70,7 +70,7 @@ test('credsFromResolved produces the transport shape', () => {
 })
 
 test('validate catches bad enum/int', () => {
-  assert.equal(ENV_SCHEMA.length, 10)
+  assert.equal(ENV_SCHEMA.length, 11)
   // spot-check the int min
   const port = ENV_SCHEMA.find((s) => s.key === 'DEVSYNC_PORT')
   assert.ok(port)
@@ -137,4 +137,13 @@ test('relative SFTP key paths resolve from the selected project and replace pass
     assert.equal(r.values.DEVSYNC_PRIVATE_KEY, path.join(localPath, 'id_ed25519'))
     assert.equal(r.warnings.some((w) => w.includes('PASSWORD') || w.includes('PRIVATE_KEY')), false)
   } finally { fs.rmSync(localPath, { recursive: true, force: true }) }
+})
+
+test('parallel-upload defaults and limits resolve consistently', async () => {
+  const { defaultsFor, validate } = await import('../src/core/envSchema.js')
+  assert.equal(defaultsFor('ftp').DEVSYNC_CONCURRENCY, 3)
+  assert.equal(defaultsFor('sftp').DEVSYNC_CONCURRENCY, 3)
+  assert.equal(validate('DEVSYNC_CONCURRENCY', 1).ok, true)
+  assert.equal(validate('DEVSYNC_CONCURRENCY', 8).ok, true)
+  for (const value of [0, 9, 1.5, 'invalid']) assert.equal(validate('DEVSYNC_CONCURRENCY', value).ok, false)
 })

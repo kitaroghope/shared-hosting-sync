@@ -64,7 +64,7 @@ try {
 const sessionOverrides = new Map()
 const prompt = createPrompter()
 const flagOverrides = () => Object.fromEntries([
-  ['transport', 'DEVSYNC_TRANSPORT'], ['host', 'DEVSYNC_HOST'],
+  ['concurrency', 'DEVSYNC_CONCURRENCY'], ['transport', 'DEVSYNC_TRANSPORT'], ['host', 'DEVSYNC_HOST'],
   ['username', 'DEVSYNC_USERNAME'], ['port', 'DEVSYNC_PORT'], ['remote-path', 'DEVSYNC_REMOTE_PATH']
 ].filter(([flag]) => flags[flag] !== undefined).map(([flag, key]) => [key, flags[flag]]))
 
@@ -137,7 +137,7 @@ async function credsForProject(project, { deployment = false } = {}) {
       envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
     })
     Object.assign(project, context.project)
-    return { ...context.creds, dryRun: context.dryRun, debounceMs: context.debounceMs }
+    return { ...context.creds, dryRun: context.dryRun, debounceMs: context.debounceMs, concurrency: context.concurrency }
   }
   const r = resolveEnv(project.id, {
     envFile: flags['env-file'], overrides: { ...flagOverrides(), ...sessionOverrides.get(project.id) }
@@ -331,11 +331,12 @@ const COMMANDS = {
         setStatus(proj.id, 'idle')
         return
       }
-      t = await createTransport(creds, undefined, { onRetry: retryNotice })
       let lastPct = -1
       const r = await runPlan(p, t, {
-        dryRun,
-        onProgress: ({ index, total, item }) => {
+        dryRun, concurrency: creds.concurrency,
+        createWorker: () => createTransport(creds, undefined, { retries: 0 }),
+        onRetry: event => warn(`Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.`),
+        onFileResult: ({ index, total, item }) => {
           const pct = Math.floor(((index + 1) / total) * 100)
           if (pct !== lastPct && pct % 10 === 0) {
             lastPct = pct
@@ -400,6 +401,8 @@ const COMMANDS = {
     const w = new ProjectWatcher(proj, matcher, t, {
       dryRun: creds.dryRun || !!flags['dry-run'],
       debounceMs: creds.debounceMs,
+      concurrency: creds.concurrency,
+      createWorker: () => createTransport(creds, flags.transport, { retries: 0 }),
       onEvent: (e) => {
         if (e.type === 'error') {
           setStatus(proj.id, 'error', { error: e.message })
@@ -503,6 +506,7 @@ ${C.b('options')}
   --edit                              setup: edit connection settings
   --browse                            setup: choose a different server folder
   --label <name>                       name a new project
+  --concurrency <1-8>                 parallel upload queues (default: 3)
   --confirm                           confirm a first-time server scan
   --dry-run --force                    preview / include unchanged files
 

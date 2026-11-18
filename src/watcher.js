@@ -10,6 +10,9 @@ export class ProjectWatcher {
     this.matcher = matcher
     this.transport = transport
     this.debounceMs = opts.debounceMs ?? 400
+    this.createWorker = opts.createWorker
+    this.concurrency = opts.concurrency ?? 3
+    this.onWorkerState = opts.onWorkerState
     this.dryRun = opts.dryRun ?? false
     this.onEvent = opts.onEvent ?? (() => {})
     this.onSettle = opts.onSettle ?? (() => {})
@@ -84,7 +87,9 @@ export class ProjectWatcher {
       const plan = await buildPlan(this.project, this.matcher, this.transport, { onProgress: this.onProgress })
       this.onPlan(plan)
       const result = await runPlan(plan, this.transport, {
-        dryRun: this.dryRun, onProgress: this.onProgress, onFileResult: this.onFileResult
+        dryRun: this.dryRun, createWorker: this.createWorker, concurrency: this.concurrency,
+        onProgress: this.onProgress, onFileResult: this.onFileResult, onWorkerState: this.onWorkerState,
+        onRetry: event => this.onEvent({ type: 'retry', message: `Queue ${event.workerId}: ${event.connectionFailure ? 'connection unavailable' : event.item.rel + ' interrupted'}; returned to the pending queue.` })
       })
       this.stats.cycles++
       if (!this.dryRun) this.stats.uploaded += result.done.length

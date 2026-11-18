@@ -31,3 +31,15 @@ test('SFTP adapter checks directory existence and uses file delete', async () =>
   transport.client.exists = async () => '-'
   await assert.rejects(transport.ensureDir('/file'), /occupied/)
 })
+
+test('SFTP concurrent directory creation accepts an existing directory but surfaces real failures', async () => {
+  const transport = new SftpTransport({})
+  let checks = 0
+  transport.client = {
+    exists: async () => ++checks === 1 ? false : 'd',
+    mkdir: async () => { throw new Error('already exists') }
+  }
+  await transport.ensureDir('/shared')
+  transport.client.exists = async () => false
+  await assert.rejects(transport.ensureDir('/denied'), /already exists/)
+})

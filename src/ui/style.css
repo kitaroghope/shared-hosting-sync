@@ -145,3 +145,5 @@ h1{font-size:25px}
 @media(max-width:580px){.brand{font-size:21px;gap:9px}.brand-logo{width:34px;height:34px}.topbar{gap:12px}.connection-pill{font-size:11px;padding:4px 9px}}
 
 .about-brand{flex-wrap:wrap}.app-version{font-size:12px;line-height:1.5;font-weight:600;letter-spacing:0;color:var(--accent);background:#203e38;border:1px solid #33554e;border-radius:999px;padding:3px 10px}
+
+.upload-queues{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:16px 0}.upload-queues:empty{display:none}.upload-queue{min-width:0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#10161f}.upload-queue strong,.upload-queue span,.upload-queue small{display:block}.upload-queue span{font-size:12px;color:var(--muted);margin-top:4px}.upload-queue small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);margin-top:6px}.queue-uploading{border-color:#397367}.queue-uploading strong{color:var(--accent)}.queue-failed span{color:var(--danger)}

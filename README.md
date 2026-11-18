@@ -6,8 +6,7 @@ choose a local folder and a server destination, then deploy or keep files in syn
 Use the terminal or a local browser dashboard. Both interfaces control the same
 projects, settings, and deployment operations.
 
-> **Version 0.1.0:** Requires Node.js 24 or newer.
-> CLI and UI onboarding, previews, deployment, sync, and watching are implemented.
+> Requires Node.js 24 or newer.
 
 The package name is **shared-hosting-sync**. Run it as `shared-hosting-sync` or
 use the shorter `devsync` alias shown in examples below. Both commands run the
@@ -44,10 +43,11 @@ shared-hosting-sync --version
 shared-hosting-sync ui
 ```
 
-Alternatively, install a locally built release tarball:
+Alternatively, run `npm run release:check` from the checkout and install the resulting
+archive. Replace `<version>` with its actual version:
 
 ```sh
-npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
+npm install -g "./artifacts/shared-hosting-sync-<version>.tgz"
 ```
 
 For development, install from this checkout:
@@ -67,12 +67,46 @@ name conflict:
 
 ```sh
 npm uninstall -g devsync
-npm install -g ./artifacts/shared-hosting-sync-0.1.0.tgz
+npm install -g shared-hosting-sync
 ```
 
 This replaces the old global installation. Saved projects and credentials remain
-in `~/.devsync/` (or your configured `DEVSYNC_HOME`). For registry installation, use
-`npm install -g shared-hosting-sync` in place of the tarball command.
+in `~/.devsync/` (or your configured `DEVSYNC_HOME`). To back up the settings,
+stop DevSync and copy that directory somewhere private. Keep the database and
+`master.key` together so saved credentials can be restored.
+
+## First sync for an existing site
+
+1. Choose **Scan server / Initial sync** and confirm. DevSync lists the destination
+   folders first, then checks local files against that inventory. Files with the
+   same size are checked by content before being marked as synced.
+2. Review pending files, then choose **Sync changes** to upload them. The scan
+   saves verified matches to SQLite and does not upload or delete server files.
+3. For everyday updates, use **Sync changes** directly. It uses saved records and
+   only queues new or changed files. For an empty destination, skip the scan and
+   use **Sync changes** or **Deploy all files**.
+
+## Parallel uploads
+
+Deploy, Sync, and Watch use up to **3 upload queues** by default. Each queue owns
+an independent connection to the same host and configured port, so FTP commands
+never overlap on one control connection. FTP/FTPS data connections still use the
+server's passive ports. SFTP uses separate SSH/SFTP sessions.
+
+Files are initially balanced by byte size. Idle queues take pending work from
+other queues. If a connection drops, its interrupted file returns to the pending
+list and healthy queues continue. A file gets at most two retries after its first
+attempt; replacement connection rounds are also bounded. Permission errors are
+reported immediately. Failed files remain pending for a later sync. An uncertain
+rename retries the entire temporary-file upload.
+
+Set **Parallel uploads** under Edit setup → Hosting → SSH key and advanced
+settings, or use `DEVSYNC_CONCURRENCY=3` in the project's environment file.
+The CLI also accepts `devsync sync [label] --concurrency 3`. Values from 1 to 8
+are supported; choose 1 for restrictive hosting accounts. Small batches open only
+as many connections as needed, and previews or unchanged syncs open none.
+Stopping Watch finishes the current upload batch, including bounded retries,
+then closes its connections. Progress counts completed files, never retry attempts.
 
 ## Start from a project folder
 
@@ -350,7 +384,7 @@ Provision any server-side application secrets separately.
 - Records belong to a source folder and destination (protocol, host, port, account,
   and server folder). Changing either starts a separate baseline.
 - If files already exist on the server, use **Scan server / Initial sync** in the
-  dashboard once before your first sync. It asks for confirmation, compares server
+  dashboard once before your first sync. It asks for confirmation, lists server folders first, then compares local and server
   content using SHA-256 for equal-size files, and saves only matching files. It
   uploads or deletes nothing; use Sync changes afterward for pending files.
   Terminal equivalent: `devsync scan [label]` (or `--confirm` for automation).

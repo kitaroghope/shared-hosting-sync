@@ -19,15 +19,15 @@ export class ReliableTransport {
 
   async connect() { await this.transaction(async () => {}); return this }
 
-  async transaction(action) {
+  async transaction(action, { retries = this.retries } = {}) {
     for (let attempt = 0; ; attempt++) {
       if (this.closed) throw new Error('Transport has been closed')
       try {
         this.raw ||= await this.connectRaw()
         return await action(this.raw)
       } catch (error) {
-        if (!isTransient(error) || attempt >= this.retries || this.closed) throw error
-        this.onRetry({ attempt: attempt + 1, retries: this.retries })
+        if (!isTransient(error) || attempt >= retries || this.closed) throw error
+        this.onRetry({ attempt: attempt + 1, retries })
         if (this.raw) await this.raw.close().catch(() => {})
         this.raw = null
         await delay(this.retryDelayMs * 2 ** attempt)

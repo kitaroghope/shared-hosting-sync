@@ -80,3 +80,37 @@ test('watch retries transient outages without requiring another save and stop ca
   offline = true; watcher.queue(file, 'changed'); await watcher.flush(); await watcher.stop()
   const count = events.length; await delay(50); assert.equal(events.length, count)
 })
+
+test('stopping watch drains all three upload workers and releases their connections', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devsync-parallel-watch-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  for (let i = 0; i < 6; i++) fs.writeFileSync(path.join(root, `${i}.txt`), `data-${i}`)
+  let release, entered, uploads = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const inFlight = new Promise(resolve => { entered = resolve })
+  const clients = []
+  function connection() {
+    const client = createMockTransport(), put = client.put.bind(client)
+    clients.push(client)
+    client.put = async (...args) => { uploads++; if (uploads === 3) entered(); await gate; return put(...args) }
+    return client
+  }
+  const main = connection()
+  const watcher = new ProjectWatcher({ localPath: root, remotePath: '/site' }, buildMatcher(root), main, { createWorker: async () => connection(), concurrency: 3 })
+  try {
+    watcher.queue(root, 'initial')
+    const cycle = watcher.flush()
+    await inFlight
+    watcher.queue(root, 'changed')
+    let stopped = false
+    const stopping = watcher.stop().then(() => { stopped = true })
+    await delay(5)
+    assert.equal(stopped, false)
+    release()
+    await stopping; await cycle
+    assert.equal(uploads, 6)
+    assert.equal(watcher.stats.cycles, 1)
+    assert.equal(watcher.pending.size, 0)
+    assert.ok(clients.slice(1).every(client => client.calls.filter(call => call.method === 'close').length === 1))
+  } finally { release(); await watcher.stop(); await main.close() }
+})

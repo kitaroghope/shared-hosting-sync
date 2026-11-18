@@ -64,3 +64,19 @@ test('dashboard shows saved baseline and up-to-date status and disables scanning
   ctx.panel.render({ ...ctx.idle, externalOperation: { kind: 'sync' } })
   assert.equal(ctx.elements.get('#scanServer').disabled, true)
 })
+
+test('dashboard renders queue health and completion-based progress', async t => {
+  const ctx = harness(t)
+  await ctx.panel.open(7, { values: { DEVSYNC_CONCURRENCY: 3 }, errors: {} })
+  ctx.panel.render({ ...ctx.idle, active: true, kind: 'sync', phase: 'uploading', progress: { current: 2, total: 6, bytes: 12 }, workers: [
+    { workerId: 1, state: 'failed', file: 'one.txt' },
+    { workerId: 2, state: 'uploading', file: '<two>.txt' },
+    { workerId: 3, state: 'uploading', file: 'three.txt' }
+  ] })
+  const queues = ctx.elements.get('#uploadQueues').innerHTML
+  assert.match(queues, /Queue 1/)
+  assert.match(queues, /work returned to queue/)
+  assert.match(queues, /&lt;two&gt;.txt/)
+  assert.equal(ctx.elements.get('#uploadProgress').value, 2)
+  assert.equal(ctx.elements.get('#uploadProgress').max, 6)
+})
