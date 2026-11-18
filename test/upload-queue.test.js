@@ -263,3 +263,61 @@ test('retry rounds reuse the idle watch connection instead of opening an extra s
   assert.deepEqual(result.failed, [])
   assert.deepEqual(attempts, [[1, 'file-0'], [2, 'file-1'], [1, 'file-1']])
 })
+
+test('a delayed login limit recovers pending work after the healthy worker closes', async () => {
+  const { promise: closed, resolve: closeFirst } = Promise.withResolvers()
+  let attempts = 0
+  const result = await runUploadQueue(jobs([2, 1]), {
+    concurrency: 2, retryDelayMs: 1,
+    createWorker: async () => {
+      if (++attempts === 2) {
+        await closed
+        throw Object.assign(new Error('Too many connections'), { code: 421 })
+      }
+      return { close: async () => closeFirst() }
+    },
+    upload: async () => {}
+  })
+  assert.equal(result.connectionLimit, 1)
+  assert.equal(result.done.length, 2)
+  assert.deepEqual(result.failed, [])
+  assert.equal(attempts, 3)
+})
+
+test('a transfer-time connection limit reduces concurrency instead of repeating the same width', async () => {
+  const release = Promise.withResolvers()
+  let opened = 0
+  const starts = []
+  const result = await runUploadQueue(jobs([3, 2, 1]), {
+    retryDelayMs: 1,
+    createWorker: async ({ workerId }) => {
+      opened++
+      return { id: workerId, close: async () => {} }
+    },
+    upload: async () => {
+      starts.push(opened)
+      // Hold the first two transfers until the third starts.
+      if (starts.length === 3) release.resolve()
+      if (starts.length <= 3) {
+        await release.promise
+        throw Object.assign(new Error('Too many connections'), { code: 425 })
+      }
+    }
+  })
+  assert.equal(result.connectionLimit, 2)
+  assert.equal(result.done.length, 3)
+  assert.deepEqual(result.failed, [])
+  assert.equal(opened, 5)
+})
+
+test('a limit at one connection leaves work pending without starting another automatic retry', async () => {
+  let opened = 0
+  const result = await runUploadQueue(jobs([1, 1]), {
+    concurrency: 1, retryDelayMs: 1,
+    createWorker: async () => { opened++; return { close: async () => {} } },
+    upload: async () => { throw Object.assign(new Error('Too many connections'), { code: 425 }) }
+  })
+  assert.equal(opened, 1)
+  assert.equal(result.failed.length, 2)
+  assert.ok(result.failed.every(file => !file.retryable))
+})

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8 — 18 November 2026
+
+- Recover pending files after a delayed connection-limit response, even when a
+  previously healthy worker has already closed.
+- Reduce upload concurrency when the server reports a limit during transfers.
+- Leave files pending and stop automatic retries if the server refuses transfers
+  at the single-connection limit.
+
 ## 0.1.7 — 18 November 2026
 
 - Group uploads by folder and order files by name, with parent folders before

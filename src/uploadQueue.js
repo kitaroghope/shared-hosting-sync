@@ -74,7 +74,7 @@ export async function runUploadQueue(items, {
   let reusable = transport
   let lastError = new Error('No upload connection is available')
   const finish = (job, error, workerId) => {
-    if (error) failed.set(job.order, { rel: job.item.rel, error: error.message, retryable: isTransient(error) })
+    if (error) failed.set(job.order, { rel: job.item.rel, error: error.message, retryable: !isConnectionLimit(error) && isTransient(error) })
     else { done.set(job.order, { rel: job.item.rel, bytes: job.item.bytes }); bytes += job.item.bytes }
     onFileResult?.({ item: job.item, index: done.size + failed.size - 1, total, workerId,
       success: !error, ...(error ? { error: error.message } : {}), dryRun: false, bytes })
@@ -89,21 +89,26 @@ export async function runUploadQueue(items, {
     let recoverable = false
     let opening = Promise.resolve()
     let activeConnections = 0
-    let stopOpening
+    let stopOpening, loginFallback, transferFallback
+    const lowerLimit = limit => {
+      ceiling = Math.min(ceiling, limit)
+      connectionLimit = ceiling
+    }
     // Ramp up one login at a time. Stop expanding after the first refused login.
     const open = (id, borrowed) => {
       const attempt = opening.then(async () => {
         if (borrowed) { activeConnections++; return borrowed }
         if (stopOpening) return null
+        const activeAtLogin = activeConnections
         try {
           const client = await createWorker({ workerId: id + 1 })
           activeConnections++
           return client
         } catch (error) {
           stopOpening = error
-          if (isConnectionLimit(error) && activeConnections > 0) {
-            ceiling = Math.min(ceiling, activeConnections)
-            connectionLimit = ceiling
+          if (isConnectionLimit(error) && activeAtLogin > 0) {
+            lowerLimit(activeAtLogin)
+            loginFallback = connectionLimit
           }
           throw error
         }
@@ -117,13 +122,13 @@ export async function runUploadQueue(items, {
       if (donor.length) return donor.pop()
       return retryCursor < returned.length ? returned[retryCursor++] : undefined
     }
-    const requeue = (job, error, workerId, connectionFailure = false) => {
+    const requeue = (job, error, workerId, connectionFailure = false, fallbackLimit) => {
       lastError = error
-      recoverable ||= connectionFailure && isConnectionLimit(error) ? activeConnections > 0 : isTransient(error)
+      recoverable ||= isConnectionLimit(error) ? fallbackLimit !== undefined : isTransient(error)
       job.error = error
       returned.push(job)
       onRetry?.({ item: job.item, error: error.message, workerId,
-        attempt: connectionFailure ? round + 1 : job.attempts, retries, connectionFailure, connectionLimit: connectionFailure && isConnectionLimit(error) ? connectionLimit : undefined })
+        attempt: connectionFailure ? round + 1 : job.attempts, retries, connectionFailure, connectionLimit: fallbackLimit })
     }
     const workers = await Promise.allSettled(lanes.map(async (_, id) => {
       let client = id === 0 && reusable && !reusable.closed ? reusable : null
@@ -138,7 +143,7 @@ export async function runUploadQueue(items, {
             catch (error) {
               retired = true
               onWorkerState?.({ workerId: id + 1, state: 'failed', file: job.item.rel })
-              requeue(job, error, id + 1, true)
+              requeue(job, error, id + 1, true, loginFallback)
               return
             }
             if (!client) {
@@ -154,12 +159,18 @@ export async function runUploadQueue(items, {
           try {
             await upload(client, job.item)
           } catch (error) {
-            if (isTransient(error)) {
+            const limited = isConnectionLimit(error)
+            if (limited || isTransient(error)) {
+              if (limited && transferFallback === undefined) {
+                stopOpening = error
+                lowerLimit(Math.max(1, activeConnections - 1))
+                transferFallback = connectionLimit
+              }
               retired = true
               onWorkerState?.({ workerId: id + 1, state: 'failed', file: job.item.rel })
-              recoverable = true
+              recoverable ||= !limited || count > 1
               lastError = error
-              if (job.attempts <= retries) requeue(job, error, id + 1)
+              if (job.attempts <= retries && (!limited || count > 1)) requeue(job, error, id + 1, false, limited ? transferFallback : undefined)
               else finish(job, error, id + 1)
               return
             }
